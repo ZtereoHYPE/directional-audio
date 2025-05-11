@@ -1,0 +1,11 @@
+[package]
+name = "rust-interface"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]  # Compile this crate to a dynamic C library.
+
+[dependencies]
+godot = "0.2.4"
+audio-processor = { path = "../../audio-processor"}
