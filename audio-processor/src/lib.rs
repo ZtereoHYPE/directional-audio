@@ -2,47 +2,92 @@ mod vulkan;
 mod audio;
 
 use std::time::Instant;
+use audio::{Frame, FRAME_SIZE};
+use plotters::chart::{ChartBuilder, LabelAreaPosition};
+use plotters::prelude::{BitMapBackend, Circle, IntoDrawingArea};
+use plotters::series::LineSeries;
+use plotters::style::full_palette::RED;
+use plotters::style::{BLUE, GREEN, WHITE};
+use vulkan::engine::VulkanBuilder;
+use vulkan::fft::{FftModule};
 
-pub fn run_test() -> bool {
-    unsafe {
-        let mut engine = vulkan::VulkanEngine::new();
+fn plot_data(frame: &Frame, gpu_fft: &Frame, name: &str) {
+    let root = BitMapBackend::new(name, (1280, 720)).into_drawing_area();
+    root.fill(&WHITE).unwrap();
 
-        let frame = audio::AudioProvider::next_frame();
+    let mut chart = ChartBuilder::on(&root)
+        .margin(10)
+        .caption(
+            "Fourier transform",
+            ("sans-serif", 40),
+        )
+        .set_label_area_size(LabelAreaPosition::Left, 60)
+        .set_label_area_size(LabelAreaPosition::Right, 60)
+        .set_label_area_size(LabelAreaPosition::Bottom, 40)
+        .build_cartesian_2d(
+            0..FRAME_SIZE,
+            -4.0..4.0,
+        ).unwrap();
 
-        let past = Instant::now();
-        let processed_frame = engine.process_frame(&frame);
-        let future = Instant::now();
-        println!("{:?}", future - past);
+    chart
+        .configure_mesh()
+        .disable_x_mesh()
+        .disable_y_mesh()
+        .x_labels(30)
+        .max_light_lines(4)
+        .y_desc("amplitude")
+        .draw()
+        .unwrap();
 
-        for value in processed_frame {
-            if value != 256 {
-                return false;
-            }
-        }
+    chart.draw_series(LineSeries::new(
+        frame.iter().enumerate().map(|(x, y)| (x, *y as f64)),
+        &BLUE,
+    )).unwrap();
 
-        true
-    }
+    chart.draw_series(LineSeries::new(
+        gpu_fft.iter().enumerate().map(|(x, y)| (x, *y as f64)),
+        &RED,
+    )).unwrap();
+
+    root.present().expect("Unable to write result to file, pr");
 }
 
 #[cfg(test)]
 mod tests {
-
+    use crate::{audio::{AudioProvider, FRAME_AMT}, vulkan::fft::{FftBuffer}};
     use super::*;
+
+    const EPSILON: f32 = 0.00001;
 
     #[test]
     fn it_works() {
         unsafe {
-            let mut engine = vulkan::VulkanEngine::new();
+            let buffer = FftBuffer {
+                frames: (0..FRAME_AMT)
+                    .map(|_| FftModule::frame_to_fft(&AudioProvider::next_frame()))
+                    .collect::<Vec<_>>()
+                    .try_into().unwrap()
+            };
 
-            let frame = audio::AudioProvider::next_frame();
+            let mut engine = VulkanBuilder::new()
+                .register_module::<FftModule>()
+                .register_module::<FftModule>()
+                .build();
+        
+            let mut fft = FftModule::new(&mut engine, false);
+            let mut ifft = FftModule::new(&mut engine, true);
 
-            let past = Instant::now();
-            let processed_frame = engine.process_frame(&frame);
-            let future = Instant::now();
-            println!("{:?}", future - past);
+            let computed_fft = fft.process_buffer(&engine, &buffer);
+            let computed_ifft = ifft.process_buffer(&engine, &computed_fft);
 
-            for value in processed_frame {
-                assert_eq!(value, 256);
+            for (before, after) in buffer.frames.iter().zip(computed_ifft.frames) {
+                let before = FftModule::fft_to_frame(before);
+                let after = FftModule::fft_to_frame(&after);
+
+                for (s_before, s_after) in before.iter().zip(after) {
+                    let diff = (s_after - s_before).abs();
+                    assert!(diff < EPSILON);
+                }
             }
         }
     }

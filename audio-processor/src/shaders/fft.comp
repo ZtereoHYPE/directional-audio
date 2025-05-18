@@ -1,0 +1,142 @@
+/*  This code was adapted from the following repository: https://github.com/Lichtso/VulkanFFT
+
+    MIT License
+
+    Copyright (c) 2019 Alexander Meißner
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+*/
+
+#version 450
+
+const float M_PI = radians(180);
+const float M_SQRT1_2 = 1.0 / sqrt(2.0);
+
+// todo: more more of these (including layout) to spec constants
+const int MAX_RADIX = 8;
+layout(constant_id = 0) const int RADIX = 8;
+layout(constant_id = 1) const int FRAME_SIZE = 512;
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0, set = 0) uniform UBO {
+    uint splitSize;
+    uint radixStride; //todo: replacce this with FRAME_SIZE / RADIX
+    float directionFactor;
+    float angleFactor;
+    float normalizationFactor;
+} ubo;
+
+layout(binding = 1, set = 0, std430) readonly restrict buffer DataIn {
+    vec2 values[];
+} dataIn;
+
+layout(binding = 2, set = 0, std430) writeonly restrict buffer DataOut {
+    vec2 values[];
+} dataOut;
+
+
+void swapComplexNumbers(inout vec2 a, inout vec2 b) {
+    vec2 aux = b;
+    b = a;
+    a = aux;
+}
+
+vec2 multComplexNumbers(vec2 a, vec2 b) {
+    return mat2(a.x, a.y, -a.y, a.x) * b;
+}
+
+vec2 perpendicularComplexNumber(vec2 w) {
+    return vec2(-w.y, w.x) * ubo.directionFactor;
+}
+
+vec2 angleBisectComplexNumber(vec2 w) {
+    return normalize(w + vec2(1.0, 0.0));
+}
+
+void butterfly(inout vec2 a, inout vec2 b, vec2 w) {
+    vec2 t = multComplexNumbers(b, w);
+    b = a - t;
+    a = a + t;
+}
+
+
+
+void fft2(inout vec2 values[MAX_RADIX], vec2 w) {
+    butterfly(values[0], values[1], w);
+}
+
+void fft4(inout vec2 values[MAX_RADIX], vec2 w) {
+    butterfly(values[0], values[2], w);
+    butterfly(values[1], values[3], w);
+    vec2 w0 = angleBisectComplexNumber(w);
+    vec2 w1 = perpendicularComplexNumber(w0);
+    butterfly(values[0], values[1], w0);
+    butterfly(values[2], values[3], w1);
+    swapComplexNumbers(values[1], values[2]);
+}
+
+void fft8(inout vec2 values[MAX_RADIX], vec2 w) {
+    butterfly(values[0], values[4], w);
+    butterfly(values[1], values[5], w);
+    butterfly(values[2], values[6], w);
+    butterfly(values[3], values[7], w);
+    vec2 w0 = angleBisectComplexNumber(w);
+    vec2 w1 = perpendicularComplexNumber(w0);
+    butterfly(values[0], values[2], w0);
+    butterfly(values[1], values[3], w0);
+    butterfly(values[4], values[6], w1);
+    butterfly(values[5], values[7], w1);
+    vec2 W0 = angleBisectComplexNumber(w0);
+    vec2 W1 = perpendicularComplexNumber(W0);
+    vec2 W2 = multComplexNumbers(W0, vec2(M_SQRT1_2, M_SQRT1_2 * ubo.directionFactor));
+    vec2 W3 = perpendicularComplexNumber(W2);
+    butterfly(values[0], values[1], W0);
+    butterfly(values[2], values[3], W1);
+    butterfly(values[4], values[5], W2);
+    butterfly(values[6], values[7], W3);
+    swapComplexNumbers(values[1], values[4]);
+    swapComplexNumbers(values[3], values[6]);
+}
+
+
+
+void main() {
+    uint invocationInBlock = gl_GlobalInvocationID.x & (ubo.splitSize - 1u);
+    uint invocationBlockBegin = gl_GlobalInvocationID.x - invocationInBlock;
+    uint outputIndex = invocationInBlock + invocationBlockBegin * RADIX;
+    float angle = float(invocationInBlock) * ubo.angleFactor;
+    vec2 twiddleFactor = vec2(cos(angle), sin(angle));
+
+    vec2 values[MAX_RADIX];
+    for (uint i = 0; i < RADIX; ++i)
+        values[i] = dataIn.values[gl_GlobalInvocationID.x + i * ubo.radixStride + FRAME_SIZE * gl_GlobalInvocationID.y];
+
+    // branch eliminated by specialization constants (hopefully)
+    if (RADIX == 2) {
+        fft2(values, twiddleFactor);
+    } else if (RADIX == 4) {
+        fft4(values, twiddleFactor);
+    } else if (RADIX == 8) {
+        fft8(values, twiddleFactor);
+    }
+
+    for (uint i = 0; i < RADIX; ++i)
+        dataOut.values[outputIndex + i * ubo.splitSize + FRAME_SIZE * gl_GlobalInvocationID.y] = values[i] * ubo.normalizationFactor;
+}
