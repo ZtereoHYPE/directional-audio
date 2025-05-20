@@ -54,7 +54,9 @@ fn plot_data(frame: &Frame, gpu_fft: &Frame, name: &str) {
 
 #[cfg(test)]
 mod tests {
-    use crate::{audio::{AudioProvider, FRAME_AMT}, vulkan::fft::{FftBuffer}};
+    use crevice::std140::Vec2;
+
+    use crate::{audio::{AudioProvider, FRAME_AMT}, vulkan::fft::{alloc_empty_buffer, FftBuffer, FftFrame}};
     use super::*;
 
     const EPSILON: f32 = 0.00001;
@@ -62,12 +64,11 @@ mod tests {
     #[test]
     fn it_works() {
         unsafe {
-            let buffer = FftBuffer {
-                frames: (0..FRAME_AMT)
-                    .map(|_| FftModule::frame_to_fft(&AudioProvider::next_frame()))
-                    .collect::<Vec<_>>()
-                    .try_into().unwrap()
-            };
+            let mut buffer: Box<FftBuffer> = alloc_empty_buffer();
+
+            for idx in 0..FRAME_AMT {
+                buffer.frames[idx] = FftModule::frame_to_fft(&AudioProvider::next_frame());
+            }
 
             let mut engine = VulkanBuilder::new()
                 .register_module::<FftModule>()
@@ -77,12 +78,15 @@ mod tests {
             let mut fft = FftModule::new(&mut engine, false);
             let mut ifft = FftModule::new(&mut engine, true);
 
+            let start = Instant::now();
             let computed_fft = fft.process_buffer(&engine, &buffer);
+            println!("time: {:?}", Instant::now() - start);
+
             let computed_ifft = ifft.process_buffer(&engine, &computed_fft);
 
-            for (before, after) in buffer.frames.iter().zip(computed_ifft.frames) {
-                let before = FftModule::fft_to_frame(before);
-                let after = FftModule::fft_to_frame(&after);
+            for idx in 0..FRAME_AMT {
+                let before = FftModule::fft_to_frame(&buffer.frames[idx]);
+                let after = FftModule::fft_to_frame(&computed_ifft.frames[idx]);
 
                 for (s_before, s_after) in before.iter().zip(after) {
                     let diff = (s_after - s_before).abs();

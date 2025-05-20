@@ -49,7 +49,7 @@ struct FftConstants {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct FftFrame {
-    samples: [Vec2; FRAME_SIZE]
+    pub(crate) samples: [Vec2; FRAME_SIZE]
 }
 
 #[repr(C)]
@@ -406,9 +406,11 @@ impl FftModule {
         }
     }
 
-    pub unsafe fn process_buffer(&mut self, ctx: &VulkanContext, buffer: &FftBuffer) -> FftBuffer {
+    // todo: potentially switch buffer to ref only with .as_ref()
+    pub unsafe fn process_buffer(&mut self, ctx: &VulkanContext, buffer: &Box<FftBuffer>) -> Box<FftBuffer> {
         // copy frame to cpu buffer
-        *(self.cpu_buffer_map.cast::<FftBuffer>()) = *buffer;
+        copy_from_box(buffer, self.cpu_buffer_map.cast::<FftBuffer>());
+
         self.buffer_allocator.flush_allocation(&self.cpu_buffer_memory, 0, WHOLE_SIZE);
         
         // dispatch compute
@@ -522,9 +524,8 @@ impl FftModule {
 
         // readback result
         self.buffer_allocator.invalidate_allocation(&self.cpu_buffer_memory, 0, WHOLE_SIZE);
-        let output_buffer = *(self.cpu_buffer_map as *const FftBuffer);
 
-        output_buffer
+        copy_to_box(self.cpu_buffer_map as *const FftBuffer)
     }
 
     // todo: look into making this a const fn
@@ -600,4 +601,27 @@ impl Drop for FftModule {
             }
         }
     }
+}
+
+unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
+    // Allocate the required space
+    let layout = std::alloc::Layout::new::<T>();
+    let ptr = std::alloc::alloc_zeroed(layout) as *mut T;
+
+    // Copy the memory value
+    std::ptr::copy(mem, ptr, 1);
+
+    // Wrap in a box
+    Box::from_raw(ptr)
+}
+
+unsafe fn copy_from_box<T>(src: &Box<T>, dst: *mut T) {
+    std::ptr::copy(src.as_ref(), dst, 1);
+}
+
+pub unsafe fn alloc_empty_buffer() -> Box<FftBuffer> {
+    let layout = std::alloc::Layout::new::<FftBuffer>();
+    let ptr = std::alloc::alloc_zeroed(layout) as *mut FftBuffer;
+
+    Box::from_raw(ptr)
 }
