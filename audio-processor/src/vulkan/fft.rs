@@ -1,6 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::{array::from_ref, f32::consts::PI, mem::transmute, num, sync::Arc, u64::MAX};
+use std::{array::from_ref, f32::consts::PI, mem::transmute, num, ops::Add, sync::Arc, u64::MAX};
 
 use ash::{util::Align, vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBufferBeginInfo, CommandBufferUsageFlags, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Fence, FenceCreateInfo, MemoryBarrier, MemoryPropertyFlags, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, SubmitInfo, WriteDescriptorSet, WHOLE_SIZE}};
 use crevice::std430::{self, AsStd430, Vec2, Vec3};
@@ -31,6 +31,8 @@ struct FftStage {
     stride: u32
 }
 
+// todo: implement GpuData for these structs and use that trait instead
+
 #[derive(AsStd430)]
 struct FftUbo {
     split_size: u32,
@@ -49,7 +51,7 @@ struct FftConstants {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct FftFrame {
-    pub(crate) samples: [Vec2; FRAME_SIZE]
+    pub(crate) samples: [Vec2; FRAME_SIZE] // todo: this is not just for fft, should be GPU frame or smth
 }
 
 #[repr(C)]
@@ -166,7 +168,7 @@ impl FftModule {
 
                 // Populate the UBO
                 let direction: f32 = if inverse { -1.0 } else { 1.0 };
-                let normalization: f32 = if inverse { 1.0 } else { 1.0 / stage.radix as f32 };
+                let normalization: f32 = if inverse { 1.0  } else { 1.0 / stage.radix as f32}; // todo: i flipped these, make sure that was a right decision
                 let data = FftUbo {
                     split_size: stage.split_size,
                     radix_stride: stage.stride,
@@ -208,7 +210,6 @@ impl FftModule {
             )
         };
 
-        // todo: this is causing VMA to freak out
         let (descriptor_sets, descriptor_layout) = {
             // Create layout, which is the same across every stage
             let bindings = [
@@ -407,11 +408,13 @@ impl FftModule {
     }
 
     // todo: potentially switch buffer to ref only with .as_ref()
-    pub unsafe fn process_buffer(&mut self, ctx: &VulkanContext, buffer: &Box<FftBuffer>) -> Box<FftBuffer> {
+    pub unsafe fn process_buffer(&mut self, ctx: &VulkanContext, buffer: &Box<FftBuffer>) -> Buffer {
         // copy frame to cpu buffer
         copy_from_box(buffer, self.cpu_buffer_map.cast::<FftBuffer>());
 
         self.buffer_allocator.flush_allocation(&self.cpu_buffer_memory, 0, WHOLE_SIZE);
+
+        let stages = FftModule::fft_stages(FRAME_SIZE);
         
         // dispatch compute
         {
@@ -447,7 +450,6 @@ impl FftModule {
             );
 
             // todo: an analytical way of finding the size would be nice for constness reasons
-            let stages = FftModule::fft_stages(FRAME_SIZE);
             for (idx, stage) in stages.iter().enumerate() { 
                 let workgroups = (FRAME_SIZE as u32 / (stage.radix * 32), FRAME_AMT as u32);
 
@@ -525,7 +527,9 @@ impl FftModule {
         // readback result
         self.buffer_allocator.invalidate_allocation(&self.cpu_buffer_memory, 0, WHOLE_SIZE);
 
-        copy_to_box(self.cpu_buffer_map as *const FftBuffer)
+        //copy_to_box(self.cpu_buffer_map as *const FftBuffer)
+
+        self.gpu_buffers[stages.len() % 2]
     }
 
     // todo: look into making this a const fn
@@ -584,6 +588,11 @@ impl FftModule {
 
         frame
     }
+
+    pub unsafe fn free_buf(&mut self, buffer: Buffer) {
+        let stages = FftModule::fft_stages(FRAME_SIZE);
+        self.buffer_allocator.destroy_buffer(buffer, &mut self.gpu_buffers_memory[stages.len() % 2]);
+    }
 }
 
 impl Drop for FftModule {
@@ -603,7 +612,7 @@ impl Drop for FftModule {
     }
 }
 
-unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
+pub(crate) unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
     // Allocate the required space
     let layout = std::alloc::Layout::new::<T>();
     let ptr = std::alloc::alloc_zeroed(layout) as *mut T;
@@ -615,13 +624,62 @@ unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
     Box::from_raw(ptr)
 }
 
+pub(crate) fn cpu_fft(mut buffer: Vec<Vec2>, w: Vec2) -> Vec<Vec2> {
+    let len = buffer.len();
+    if len == 1 {
+        return buffer;
+    }
+
+    let left = buffer.iter().step_by(2).cloned().collect();
+    let right = buffer.iter().skip(1).step_by(2).cloned().collect();
+
+    let left = cpu_fft(left, complex_mult(w, w));
+    let right = cpu_fft(right, complex_mult(w, w));
+
+    let half = len / 2;
+    let mut x = Vec2 {x: 1.0, y: 0.0};
+
+    (0..half).for_each(|idx| {
+        buffer[idx       ] = complex_sum(left[idx], complex_mult(x, right[idx]));
+        buffer[idx + half] = complex_sub(left[idx], complex_mult(x, right[idx]));
+        x = complex_mult(x, w);
+    });
+
+    buffer
+}
+
+pub(crate) fn root_of_unity(len: isize) -> Vec2 {
+    let angle = 2.0 * PI / len as f32;
+    Vec2 {
+        x: angle.cos(),
+        y: angle.sin(),
+    }
+}
+
+fn complex_mult(left: Vec2, right: Vec2) -> Vec2 {
+    Vec2 {
+        x: left.x * right.x - left.y * right.y,
+        y: left.x * right.y + left.y * right.x,
+    }
+}
+
+fn complex_sum(mut left: Vec2, right: Vec2) -> Vec2 {
+    left.x += right.x;
+    left.y += right.y;
+    left
+}
+
+fn complex_sub(mut left: Vec2, right: Vec2) -> Vec2 {
+    left.x -= right.x;
+    left.y -= right.y;
+    left
+}
+
+pub(crate) fn magnitude(complex: Vec2) -> f32 {
+    (complex.x * complex.x + complex.y * complex.y).sqrt()
+}
+
 unsafe fn copy_from_box<T>(src: &Box<T>, dst: *mut T) {
     std::ptr::copy(src.as_ref(), dst, 1);
 }
 
-pub unsafe fn alloc_empty_buffer() -> Box<FftBuffer> {
-    let layout = std::alloc::Layout::new::<FftBuffer>();
-    let ptr = std::alloc::alloc_zeroed(layout) as *mut FftBuffer;
-
-    Box::from_raw(ptr)
-}

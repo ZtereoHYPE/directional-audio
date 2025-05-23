@@ -4,9 +4,11 @@
 use std::f32::consts::{PI, TAU};
 
 use rand::Rng;
+pub mod hrtf;
+
 
 pub(crate) const FRAME_SIZE: usize = 512;
-pub(crate) const FRAME_AMT: usize = 64;
+pub(crate) const FRAME_AMT: usize = 1;
 
 pub type Frame = [f32; FRAME_SIZE];
 pub struct AudioProvider {}

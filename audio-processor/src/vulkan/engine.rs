@@ -16,11 +16,21 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ash::ext::debug_utils;
-use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DebugUtilsMessengerEXT, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceCreateInfo, DeviceQueueCreateInfo, Fence, FenceCreateInfo, MappedMemoryRange, MemoryAllocateInfo, MemoryBarrier, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateFlags, PipelineLayoutCreateInfo, PipelineShaderStageCreateFlags, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SubmitInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DebugUtilsMessengerEXT, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceCreateInfo, DeviceQueueCreateInfo, ExtendsRayTracingPipelineCreateInfoKHR, Extent3D, Fence, FenceCreateFlags, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresource, ImageSubresourceLayers, ImageSubresourceRange, ImageView, MappedMemoryRange, MemoryAllocateInfo, MemoryBarrier, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateFlags, PipelineLayoutCreateInfo, PipelineShaderStageCreateFlags, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SubmitInfo, WriteDescriptorSet, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{vk::{self, ApplicationInfo, InstanceCreateInfo}, Entry, Instance, Device};
-use vk_mem::{Alloc, AllocationCreateFlags, AllocationCreateInfo, AllocatorCreateInfo};
+use vk_mem::{Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, Allocator, AllocatorCreateInfo};
 
 use crate::audio::Frame;
+
+
+
+
+//  TODO: MOVE THIS TO VULKAN.RS
+// RENAME VULKAN TO VULKAN_MODULES
+
+
+
+const STAGING_BUFFER_SIZE: u64 = 128 * 1024 * 1024; // 128 MB
 
 pub(crate) struct DescriptorRequirement {
     pub ttype: DescriptorType,
@@ -29,6 +39,200 @@ pub(crate) struct DescriptorRequirement {
 
 pub(crate) trait VulkanModule {
     fn descriptors() -> Vec<DescriptorRequirement>;
+}
+
+pub(crate) trait GpuData {
+    unsafe fn serialize(&self, dst: *mut u8);
+    unsafe fn deserialize(src: *const u8) -> Box<Self>;
+    fn size(&self) -> usize;
+}
+
+// Util object to one-time upload data to a buffer using a staging buffer
+pub(crate) struct BufferUploader {
+    allocator: Allocator,
+    staging_buffer: Buffer,
+    staging_memory: Allocation,
+    staging_map: *mut u8,
+    command_buffer: CommandBuffer,
+    fence: Fence,
+}
+
+impl BufferUploader {
+    fn new(instance: &Instance, device: &Device, gpu: &PhysicalDevice, compute_queue_idx: u32, command_buffer: CommandBuffer) -> Self {
+        let allocator = {
+            let allocator_create_info = AllocatorCreateInfo::new(
+                instance, 
+                device,
+                *gpu
+            );
+
+            unsafe {
+                vk_mem::Allocator::new(allocator_create_info)
+                    .expect("Failed to create memory allocator")
+            }
+        };
+
+        let (staging_buffer, staging_memory, staging_map) = {
+            let buffer_info = BufferCreateInfo::default()
+                .size(STAGING_BUFFER_SIZE)
+                .usage(BufferUsageFlags::TRANSFER_SRC)
+                .queue_family_indices(from_ref(&compute_queue_idx))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::Auto,
+                flags: AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
+                ..Default::default()
+            };
+
+            // Create a UBO per stage
+            unsafe {
+                let (buffer, mut memory) = allocator
+                    .create_buffer(&buffer_info, &allocation_info)
+                    .expect("Failed to create buffer");
+    
+                let map = allocator
+                    .map_memory(&mut memory)
+                    .expect("Failed to map memory");
+
+                (buffer, memory, map)
+            }
+        };
+
+        let fence = unsafe {
+            device
+                .create_fence(&FenceCreateInfo::default(), None)
+                .expect("failed to create fence")
+        };
+
+        Self { 
+            allocator,
+            staging_buffer, 
+            staging_memory, 
+            staging_map,
+            command_buffer,
+            fence
+        }
+    }
+
+    // todo: after the refactor make these methods mutate the buffer uploader!
+    pub(crate) unsafe fn upload_buffer_onetime<T: GpuData>(&self, device: &Device, queue: Queue, src: T, dst: &mut Buffer) {
+        let size = src.size() as u64;
+
+        self.prepare_onetime(device, src);
+
+        // perform copy
+        let region = BufferCopy::default().size(size);
+        device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, *dst, from_ref(&region));
+
+        // submit
+        device.end_command_buffer(self.command_buffer);
+
+        let submit_info = SubmitInfo::default()
+            .command_buffers(from_ref(&self.command_buffer));
+
+        device
+            .queue_submit(queue, &[submit_info], self.fence)
+            .expect("Failed to submit command buffer");
+
+        // wait for fence
+        device.wait_for_fences(from_ref(&self.fence), true, MAX);
+    }
+
+    // warning: this also transitions the image layout
+    pub(crate) unsafe fn upload_image_onetime<T: GpuData>(&self, device: &Device, queue: Queue, src: T, dst: &mut Image, dst_layout: ImageLayout, dst_extent: Extent3D) {
+        let size = src.size() as u64;
+
+        self.prepare_onetime(device, src);
+
+        // transition the image's layout to the required one
+        let subresource = ImageSubresourceRange::default()
+            .aspect_mask(ImageAspectFlags::COLOR)
+            .layer_count(1)
+            .level_count(1);
+
+        let mut image_barrier = ImageMemoryBarrier::default()
+            .old_layout(ImageLayout::UNDEFINED)
+            .new_layout(ImageLayout::TRANSFER_DST_OPTIMAL)
+            .src_queue_family_index(QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(QUEUE_FAMILY_IGNORED)
+            .image(*dst)
+            .subresource_range(subresource);
+
+        device.cmd_pipeline_barrier(
+            self.command_buffer,
+            PipelineStageFlags::TOP_OF_PIPE,
+            PipelineStageFlags::TRANSFER,
+            DependencyFlags::empty(),
+            &[],
+            &[],
+            from_ref(&image_barrier)
+        );
+
+        // perform copy
+        let subresource = ImageSubresourceLayers::default()
+            .aspect_mask(ImageAspectFlags::COLOR)
+            .layer_count(1);
+
+        let region = BufferImageCopy::default()
+            .image_extent(dst_extent)
+            .image_subresource(subresource);
+
+        device.cmd_copy_buffer_to_image(self.command_buffer, self.staging_buffer, *dst, ImageLayout::TRANSFER_DST_OPTIMAL, from_ref(&region));
+
+        image_barrier = image_barrier
+            .old_layout(ImageLayout::TRANSFER_DST_OPTIMAL)
+            .new_layout(dst_layout);
+
+        device.cmd_pipeline_barrier(
+            self.command_buffer,
+            PipelineStageFlags::TRANSFER,
+            PipelineStageFlags::BOTTOM_OF_PIPE,
+            DependencyFlags::empty(),
+            &[],
+            &[],
+            from_ref(&image_barrier)
+        );
+
+        // submit
+        device.end_command_buffer(self.command_buffer);
+
+        let submit_info = SubmitInfo::default()
+            .command_buffers(from_ref(&self.command_buffer));
+
+        device
+            .queue_submit(queue, &[submit_info], self.fence)
+            .expect("Failed to submit command buffer");
+
+        // wait for fence
+        device.wait_for_fences(from_ref(&self.fence), true, MAX);
+    }
+
+    unsafe fn prepare_onetime<T: GpuData>(&self, device: &Device, src: T) {
+        let size = src.size() as u64;
+
+        if size > STAGING_BUFFER_SIZE {
+            todo!("Uploading data bigger than the staging buffer isn't supported yet");
+        }
+
+        device.reset_fences(from_ref(&self.fence));
+
+        // copy data to the staging buffer
+        src.serialize(self.staging_map);
+        self.allocator.flush_allocation(&self.staging_memory, 0, WHOLE_SIZE);
+
+        // reset and begin command buffer
+        device
+            .reset_command_buffer(self.command_buffer, CommandBufferResetFlags::RELEASE_RESOURCES) // todo: releaase resources?
+            .expect("Failed to reset command buffer"); 
+
+        let begin_info = CommandBufferBeginInfo::default()
+            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        device
+            .begin_command_buffer(self.command_buffer, &begin_info)
+            .expect("Failed to begin command buffer recording");
+    }
 }
 
 pub struct VulkanBuilder {
@@ -68,10 +272,10 @@ pub struct VulkanContext {
     pub compute_queue: (Queue, u32),
 
     pub command_pool: CommandPool,
-    pub setup_command_buffer: CommandBuffer,
     pub command_buffer: CommandBuffer,
 
     pub descriptor_pool: DescriptorPool,
+    pub buffer_uploader: BufferUploader
 }
 
 impl VulkanContext {
@@ -100,7 +304,6 @@ impl VulkanContext {
                 .expect("Failed to create vulkan instance")
         };
 
-
         let debug_callback = {
             let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
                 .message_severity(
@@ -119,7 +322,6 @@ impl VulkanContext {
                 .create_debug_utils_messenger(&debug_info, None)
                 .unwrap()
         };
-
 
         // todo: better logic for selecting device and queue
         let (gpu, queue_family_index) = {
@@ -200,6 +402,8 @@ impl VulkanContext {
                 .expect("Failed to create descriptor pool")
         };
 
+        let buffer_uploader = BufferUploader::new(&instance, &device, &gpu, queue_family_index, setup_command_buffer);
+
         Self {
             entry,
             instance,
@@ -208,12 +412,11 @@ impl VulkanContext {
             device,
             compute_queue: (compute_queue, queue_family_index),
             command_pool,
-            setup_command_buffer,
             command_buffer,
             descriptor_pool,
+            buffer_uploader
         }
     }
-
     
     unsafe extern "system" fn debug_callback(
         message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,

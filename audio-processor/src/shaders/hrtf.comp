@@ -1,0 +1,63 @@
+#version 460
+
+const float M_PI = radians(180);
+const float M_PI_HALF = radians(90);
+layout(constant_id = 0) const int FRAME_SIZE = 512;
+layout(constant_id = 1) const float MIN_ELEVATION = 0;
+layout(constant_id = 2) const float MAX_ELEVATION = 2.0 * M_PI;
+layout(constant_id = 3) const int FILTER_SIZE = 128;
+
+// x = frequency, y = source
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// todo: figure out how to do this
+layout(set = 0, binding = 0, rgba32f) uniform imageBuffer metadata; // vec4 -> rgb is position, floatBitsToInt(alpha) is sound idx
+
+layout(set = 0, binding = 1, std430) readonly restrict buffer Frames {
+    vec2 samples[];
+};
+
+layout(set = 0, binding = 2, std430) coherent restrict buffer OutputLeft {
+    vec2 leftOutput[];
+};
+
+layout(set = 0, binding = 3, std430) coherent restrict buffer OutputRight {
+    vec2 rightOutput[];
+};
+
+layout(set = 0, binding = 4) uniform sampler3D hrtfLeft;
+layout(set = 0, binding = 5) uniform sampler3D hrtfRight;
+
+
+vec2 cartesian_to_polar(vec3 coords) {
+    return vec2(
+        asin(coords.y) + M_PI_HALF,
+        atan(coords.z, coords.x)
+    );
+}
+
+vec2 multComplexNumbers(vec2 a, vec2 b) {
+    return mat2(a.x, a.y, -a.y, a.x) * b;
+}
+
+void main() {
+    // todo: look up best way to avoid costs:
+    // - coherent buffer access (better split or single buffer?)
+    // - coherent buffer access (better in warp or across warps?)
+    // - frames access (better continuous in invocation, or split throughout warp?)
+    // - caching?
+
+    vec4 source = imageLoad(metadata, int(gl_GlobalInvocationID.y));
+    vec2 coords = cartesian_to_polar(source.xyz);
+    int frame = floatBitsToInt(source.a) * FRAME_SIZE;
+
+    // Normalized coordinates
+    vec3 texCoord = vec3(
+        coords.x / (2.0 * M_PI),
+        (coords.y / (MAX_ELEVATION - MIN_ELEVATION)) - MIN_ELEVATION,
+        float(gl_GlobalInvocationID.x) / float(FILTER_SIZE)
+    );
+
+    leftOutput[gl_GlobalInvocationID.x] += multComplexNumbers(samples[gl_GlobalInvocationID.x + frame], texture(hrtfLeft, texCoord).xy);
+    rightOutput[gl_GlobalInvocationID.x] += multComplexNumbers(samples[gl_GlobalInvocationID.x + frame], texture(hrtfRight, texCoord).xy);
+}
