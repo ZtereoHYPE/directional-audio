@@ -5,8 +5,8 @@ use std::f32::consts::PI;
 
 use crevice::{std430::Vec2};
 use sofar::reader::{Filter, OpenOptions};
-
-use crate::vulkan::{engine::GpuData, fft::{cpu_fft, root_of_unity}};
+use crate::vulkan::GpuData;
+use crate::vulkan::signal_processor::fft::FftModule;
 
 pub struct HrtfOptions {
     pub elevation_samples: u32,
@@ -97,7 +97,7 @@ impl GpuData for HrtfFilterChannel {
         }
     }
 
-    unsafe fn deserialize(src: *const u8) -> Box<Self> {
+    unsafe fn deserialize(_: *const u8) -> Box<Self> {
         panic!("HRTF filters should not be deserialized from the gpu!")
     }
 
@@ -120,13 +120,14 @@ fn fourier_transform(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec2> {
         vec.push(Vec2 {x: 0.0, y: 0.0});
     }
 
-    cpu_fft(vec, root_of_unity(pad_length as isize))
+    FftModule::local_fourier_transform(vec, false)
+    // vec
 }
 
 fn polar_to_cartesian(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
     (
         elevation.cos() * azimuth.cos(),
-        elevation.sin(),
+        (elevation - PI / 2.0).sin(),
         elevation.cos() * azimuth.sin(),
     )
 }

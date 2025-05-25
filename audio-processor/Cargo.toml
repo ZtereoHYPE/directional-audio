@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 ash = "0.38.0"
 crevice = "0.18.0"  # for automatic GLSL struct-padding
+hound = "3.5.1"
 plotters = "0.3.7"
 rand = "0.9.1"
 sofar = "0.2.1"

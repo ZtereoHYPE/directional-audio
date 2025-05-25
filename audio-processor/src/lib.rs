@@ -1,24 +1,21 @@
 mod vulkan;
 mod audio;
 
-use std::time::Instant;
-use audio::{Frame, FRAME_SIZE};
+use audio::FRAME_SIZE;
 use crevice::std430::Vec2;
 use plotters::chart::{ChartBuilder, LabelAreaPosition};
-use plotters::prelude::{BitMapBackend, Circle, IntoDrawingArea};
+use plotters::prelude::{BitMapBackend, IntoDrawingArea};
 use plotters::series::LineSeries;
 use plotters::style::full_palette::RED;
 use plotters::style::{BLUE, GREEN, WHITE};
-use vulkan::fft::{magnitude, FftModule};
 
 #[cfg(test)]
 mod tests {
-    use std::f32::consts::PI;
-
-    use crate::{audio::{hrtf::{HrtfFilter, HrtfOptions}, AudioProvider, FRAME_AMT}, vulkan::{engine::VulkanBuilder, fft::{cpu_fft, root_of_unity, FftBuffer, FftFrame}, hrtf::HrtfModule}};
+    use crate::audio::{AudioProvider, FRAME_AMT};
+    use crate::vulkan::AudioEngine;
+    use crate::vulkan::signal_processor::fft::FftModule;
+    use crate::vulkan::signal_processor::FftBuffer;
     use super::*;
-
-    const EPSILON: f32 = 0.0005;
 
     pub unsafe fn alloc_empty_buffer() -> Box<FftBuffer> {
         let layout = std::alloc::Layout::new::<FftBuffer>();
@@ -27,8 +24,8 @@ mod tests {
         Box::from_raw(ptr)
     }
 
-    fn plot_data(frame: &Vec<Vec2>, fft: &Vec<Vec2>, ifft: &Vec<Vec2>) {
-        let root = BitMapBackend::new("./test.png", (1280, 720)).into_drawing_area();
+    pub fn plot_data(frame: &Vec<Vec2>, fft: &Vec<Vec2>, ifft: &Vec<Vec2>, name: &str) {
+        let root = BitMapBackend::new(name, (1280, 720)).into_drawing_area();
         root.fill(&WHITE).unwrap();
 
         let mut chart = ChartBuilder::on(&root)
@@ -42,7 +39,7 @@ mod tests {
             .set_label_area_size(LabelAreaPosition::Bottom, 40)
             .build_cartesian_2d(
                 0..FRAME_SIZE,
-                -10.0..10.0,
+                -2.0..2.0,
             ).unwrap();
 
         chart
@@ -74,98 +71,38 @@ mod tests {
     }
 
     #[test]
-    fn hrtf_test() {
+    fn test() {
         unsafe {
-            let filter_options = HrtfOptions {
-                //elevation_samples: 90, // one every 2 deg
-                //azimuth_samples: 180, // one every 2 deg
-                azimuth_samples: 4,
-                elevation_samples: 4,
-                elevation_max: PI, // full sphere was captured
-                elevation_min: 0.0, // "
-                sampling_rate: 48000.0
-            };
-            
-            let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", FRAME_SIZE);
+            let mut engine = AudioEngine::new();
 
             let mut buffer: Box<FftBuffer> = alloc_empty_buffer();
-
             for idx in 0..FRAME_AMT {
-                buffer.frames[idx] = FftModule::frame_to_fft(&AudioProvider::next_frame());
+                buffer.frames[idx] = FftModule::frame_to_fft(&AudioProvider::random_frame(4));
             }
 
-            let mut engine = VulkanBuilder::new()
-                .register_module::<FftModule>()
-                .register_module::<FftModule>()
-                .register_module::<HrtfModule>()
-                .build();
-        
-            let mut fft = FftModule::new(&mut engine, false);
-            let mut ifft = FftModule::new(&mut engine, false);
+            let (left, right) = engine.process_frames(buffer.clone());
 
-            let computed_fft = fft.process_buffer(&engine, &buffer);
-            
-            let hrtf = HrtfModule::new(&mut engine, filter, &computed_fft);
-            let computed_hrtf = hrtf.apply(&mut engine);
-
-            ifft.process_buffer(&mut engine, &Box::new(FftBuffer {
-                frames: [*computed_hrtf.0]
-            }));
-
-            let result = cpu_fft(computed_hrtf.0.samples.into(), root_of_unity(-(FRAME_SIZE as isize)));
-
-            // todo: compare before and after in the frequency domain
-            plot_data(&buffer.frames[0].samples.into(), &(*computed_hrtf.0).samples.into(), &result);
-
-            //for idx in 0..FRAME_AMT {
-            //    let before = FftModule::fft_to_frame(&buffer.frames[idx]);
-            //    let after = FftModule::fft_to_frame(&computed_ifft.frames[idx]);
-
-            //    for (s_before, s_after) in before.iter().zip(after) {
-            //        let diff = (s_after - s_before).abs();
-            //        assert!(diff < EPSILON);
-            //    }
-            //}
+            plot_data(&(*buffer).frames[0].into(), &(*left).into(), &(*right).into(), "./roundtrip.png");
         }
     }
 
-    //#[test]
-    //fn gpu_fft_test() {
-    //    unsafe {
-    //        //let mut engine = VulkanBuilder::new()
-    //        //    .register_module::<FftModule>()
-    //        //    .register_module::<HrtfModule>()
-    //        //    .build();
-
-    //        //let mut fft = FftModule::new(&mut engine, false);
-    //        //let mut hrtf = FftModule::new(&mut engine, true);
-            
-    //        //let computed_fft = fft.process_buffer(&engine, &buffer);
-    //        //let computed_ifft = fft.process_buffer(&mut engine);
-
-    //        //for idx in 0..FRAME_AMT {
-    //        //    let before = FftModule::fft_to_frame(&buffer.frames[idx]);
-    //        //    let after = FftModule::fft_to_frame(&computed_ifft.frames[idx]);
-
-    //        //    for (s_before, s_after) in before.iter().zip(after) {
-    //        //        let diff = (s_after - s_before).abs();
-    //        //        assert!(diff < EPSILON);
-    //        //    }
-    //        //}
-    //    }
-    //}
-
     #[test]
-    fn cpu_fft_test() {
-        let vector = Vec::from(FftModule::frame_to_fft(&AudioProvider::next_frame()).samples);
-        let fft = cpu_fft(vector.clone(), root_of_unity(FRAME_SIZE as isize));
-        let ifft = cpu_fft(fft.clone(), root_of_unity(-(FRAME_SIZE as isize)));
+    fn fft_test() {
+        unsafe {
+            let mut engine = AudioEngine::new();
+            let frame = FftModule::frame_to_fft(&AudioProvider::random_frame(16));
 
-        // plot_data(&vector, &fft, &ifft);
+            let fft = engine.fft_gpu(Box::from(frame.clone()));
+            
+            let ifft = FftModule::local_fourier_transform((*fft).into(), true);
 
-        for (&s_before, s_after) in vector.iter().zip(ifft) {
-            let diff = (s_after.x / FRAME_SIZE as f32 - s_before.x).abs();
-            assert!(diff < EPSILON);
+            plot_data(&frame.into(), &(*fft).into(), &ifft, "./fft.png");
         }
+    }
+    
+    
+    #[test]
+    fn audio_test() {
+        let sampels = AudioProvider::from_file("./datasources/sample-15s.wav");
     }
 }

@@ -29,16 +29,16 @@ impl ISprite2D for Player {
         }
     }
 
-    // physics_process gives us the deltas
-    fn physics_process(&mut self, delta: f64) {
-        // In GDScript, this would be: 
-        // rotation += angular_speed * delta
+    //// physics_process gives us the deltas
+    //fn physics_process(&mut self, delta: f64) {
+    //    // In GDScript, this would be: 
+    //    // rotation += angular_speed * delta
         
-        let radians = (self.angular_speed * delta) as f32;
-        self.base_mut().rotate(radians);
+    //    let radians = (self.angular_speed * delta) as f32;
+    //    self.base_mut().rotate(radians);
 
-        let rotation = self.base().get_rotation();
-        let velocity = Vector2::UP.rotated(rotation) * self.speed as f32;
-        self.base_mut().translate(velocity * delta as f32);
-    }
+    //    let rotation = self.base().get_rotation();
+    //    let velocity = Vector2::UP.rotated(rotation) * self.speed as f32;
+    //    self.base_mut().translate(velocity * delta as f32);
+    //}
 }
