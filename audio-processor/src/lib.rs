@@ -1,37 +1,39 @@
-mod vulkan;
-mod audio;
+mod audio_engine;
+mod scene;
 
-use audio::FRAME_SIZE;
-use crevice::std430::Vec2;
 use plotters::chart::{ChartBuilder, LabelAreaPosition};
 use plotters::prelude::{BitMapBackend, IntoDrawingArea};
 use plotters::series::LineSeries;
 use plotters::style::full_palette::RED;
-use plotters::style::{BLUE, GREEN, WHITE};
+use plotters::style::{BLUE, WHITE};
+use scene::FRAME_SIZE;
 
 #[cfg(test)]
 mod tests {
-    use crate::audio::{AudioProvider, FRAME_AMT};
-    use crate::vulkan::AudioEngine;
-    use crate::vulkan::signal_processor::fft::FftModule;
-    use crate::vulkan::signal_processor::FftBuffer;
     use super::*;
+    use crate::audio_engine::gpu_structures::{GpuWindow, StreamBuffer, GPU_WINDOW_SIZE};
+    use crate::audio_engine::signal_processor::fft::{complex, FftModule};
+    use crate::audio_engine::{frame_to_gpu, gpu_to_frame, AudioEngine};
+    use crate::scene::hrtf_filter::{HrtfFilter, HrtfOptions};
+    use crate::scene::{AudioProvider, Frame};
+    use crevice::std430::Vec2;
+    use std::f32::consts::PI;
+    use std::mem::transmute;
+    // pub unsafe fn alloc_empty_buffer() -> Box<FftBuffer> {
+    //     let layout = std::alloc::Layout::new::<FftBuffer>();
+    //     let ptr = std::alloc::alloc_zeroed(layout) as *mut FftBuffer;
+    //
+    //     Box::from_raw(ptr)
+    // }
 
-    pub unsafe fn alloc_empty_buffer() -> Box<FftBuffer> {
-        let layout = std::alloc::Layout::new::<FftBuffer>();
-        let ptr = std::alloc::alloc_zeroed(layout) as *mut FftBuffer;
-
-        Box::from_raw(ptr)
-    }
-
-    pub fn plot_data(frame: &Vec<Vec2>, fft: &Vec<Vec2>, ifft: &Vec<Vec2>, name: &str) {
+    pub fn plot_data(frame: &Vec<f32>, fft: &Vec<f32>, ifft: &Vec<f32>, name: &str) {
         let root = BitMapBackend::new(name, (1280, 720)).into_drawing_area();
         root.fill(&WHITE).unwrap();
 
         let mut chart = ChartBuilder::on(&root)
             .margin(10)
             .caption(
-                "Averge temperature in Salt Lake City, UT",
+                "soundwave",
                 ("sans-serif", 40),
             )
             .set_label_area_size(LabelAreaPosition::Left, 60)
@@ -39,7 +41,7 @@ mod tests {
             .set_label_area_size(LabelAreaPosition::Bottom, 40)
             .build_cartesian_2d(
                 0..FRAME_SIZE,
-                -2.0..2.0,
+                -10.0..10.0,
             ).unwrap();
 
         chart
@@ -53,56 +55,135 @@ mod tests {
             .unwrap();
 
         chart.draw_series(LineSeries::new(
-            frame.iter().enumerate().map(|(x, y)| (x, (*y).x as f64)),
+            frame.iter().map(|&f| f as f64).enumerate(),
             &BLUE,
         )).unwrap();
 
         chart.draw_series(LineSeries::new(
-            fft.iter().enumerate().map(|(x, y)| (x, (*y).x as f64)),
+            fft.iter().map(|&f| f as f64).enumerate(),
             &RED,
         )).unwrap();
 
-        chart.draw_series(LineSeries::new(
-            ifft.iter().enumerate().map(|(x, y)| (x, (*y).x as f64 )),
-            &GREEN,
-        )).unwrap();
+        // chart.draw_series(LineSeries::new(
+        //     ifft.iter().map(|&f| f as f64).enumerate(),
+        //     &GREEN,
+        // )).unwrap();
 
         root.present().expect("Unable to write result to file, pr");
     }
 
-    #[test]
-    fn test() {
-        unsafe {
-            let mut engine = AudioEngine::new();
-
-            let mut buffer: Box<FftBuffer> = alloc_empty_buffer();
-            for idx in 0..FRAME_AMT {
-                buffer.frames[idx] = FftModule::frame_to_fft(&AudioProvider::random_frame(4));
-            }
-
-            let (left, right) = engine.process_frames(buffer.clone());
-
-            plot_data(&(*buffer).frames[0].into(), &(*left).into(), &(*right).into(), "./roundtrip.png");
-        }
-    }
-
-    #[test]
-    fn fft_test() {
-        unsafe {
-            let mut engine = AudioEngine::new();
-            let frame = FftModule::frame_to_fft(&AudioProvider::random_frame(16));
-
-            let fft = engine.fft_gpu(Box::from(frame.clone()));
-            
-            let ifft = FftModule::local_fourier_transform((*fft).into(), true);
-
-            plot_data(&frame.into(), &(*fft).into(), &ifft, "./fft.png");
-        }
-    }
-    
-    
+    // #[ignore]
     #[test]
     fn audio_test() {
         let sampels = AudioProvider::from_file("./datasources/sample-15s.wav");
+
+        let mut left: Vec<Frame> = vec![];
+        let mut right: Vec<Frame> = vec![];
+
+        unsafe {
+            let mut engine = AudioEngine::new();
+
+            println!("started rendering");
+            for sample in sampels {
+                let (left_frame, right_frame) = engine.process_frames(vec![sample]);
+                
+                
+
+                left.push(left_frame);
+                right.push(right_frame);
+            }
+
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate: 44100,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            };
+            let mut writer = hound::WavWriter::create("output.wav", spec).unwrap();
+
+            for (&l, r) in left.iter().zip(right) {
+                for (&sl, sr) in l.iter().zip(r) {
+                    writer.write_sample(sl / 10000.0);
+                    writer.write_sample(sr / 10000.0);
+                }
+            }
+
+            writer.finalize().unwrap();
+        }
+    }
+
+    #[ignore]
+    #[test]
+    fn audio_test_local() {
+        let sampels = AudioProvider::from_file("./datasources/sample-15s.wav");
+    
+        let filter_options = HrtfOptions {
+            azimuth_samples: 180, // one every 2 deg
+            elevation_samples: 90, // one every 2 deg
+            elevation_max: PI, // full sphere was captured
+            elevation_min: 0.0, // "
+            sampling_rate: 44100.0
+        };
+    
+        let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", GPU_WINDOW_SIZE);
+    
+        let mut left: Vec<Frame> = vec![];
+        let mut right: Vec<Frame> = vec![];
+    
+        let mut stream_buffer = StreamBuffer::new();
+    
+        fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> {
+            unsafe {
+                // transmute the pointer without performing a copy; arrays in rust are guaranteed to be sequential
+                let flat_window = transmute::<Box<GpuWindow>, Box<[Vec2; GPU_WINDOW_SIZE]>>(window);
+                (flat_window as Box<[_]>).into_vec() // turn the box into a vector
+            }
+        }
+    
+        for sample in sampels {
+            stream_buffer.insert_frames(vec![frame_to_gpu(&sample).into()]);
+    
+            let fft_frame = FftModule::local_fourier_transform(window_to_vec(Box::from(stream_buffer.windows[0])), false);
+    
+            let (filter_left, filter_right) = filter.for_angle(0.0, 0.5);
+    
+            let multiplied_left: Vec<_> = fft_frame
+                .iter()
+                .enumerate()
+                .map(|(idx, &s)| complex::mult(s, filter_left[idx]))
+                .collect();
+            
+            let multiplied_right: Vec<_> = fft_frame
+                .iter()
+                .enumerate()
+                .map(|(idx, &s)| complex::mult(s, filter_right[idx]))
+                .collect();
+            
+            let ifft_left = FftModule::local_fourier_transform(multiplied_left, true);
+            let ifft_right = FftModule::local_fourier_transform(multiplied_right, true);
+            
+            let (start, end) = StreamBuffer::last_frame_range();
+    
+            left.push(gpu_to_frame(&ifft_left[start..end].try_into().unwrap()));
+            right.push(gpu_to_frame(&ifft_right[start..end].try_into().unwrap()));
+        }
+    
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 44100,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+    
+        let mut writer = hound::WavWriter::create("output_local.wav", spec).unwrap();
+    
+        for (&l, r) in left.iter().zip(right) {
+            for (&sl, sr) in l.iter().zip(r) {
+                writer.write_sample(sl / 100000.0).unwrap();
+                writer.write_sample(sr / 100000.0).unwrap();
+            }
+        }
+    
+        writer.finalize().unwrap();
     }
 }

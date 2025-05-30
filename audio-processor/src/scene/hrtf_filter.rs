@@ -3,10 +3,11 @@
 
 use std::f32::consts::PI;
 
-use crevice::{std430::Vec2};
-use sofar::reader::{Filter, OpenOptions};
-use crate::vulkan::GpuData;
-use crate::vulkan::signal_processor::fft::FftModule;
+use crate::audio_engine::signal_processor::fft::FftModule;
+use crate::audio_engine::GpuData;
+use crevice::std430::Vec4;
+use crevice::std430::Vec2;
+use sofar::reader::{Filter, OpenOptions, Sofar};
 
 pub struct HrtfOptions {
     pub elevation_samples: u32,
@@ -21,6 +22,7 @@ pub struct HrtfFilter {
     pub filter_len: usize,
     pub left: HrtfFilterChannel, 
     pub right: HrtfFilterChannel,
+    sofa: Sofar
 }
 
 impl HrtfFilter {
@@ -58,12 +60,12 @@ impl HrtfFilter {
         let mut filter = Filter::new(filter_len);
         for (e_idx, &elevation) in elevations.iter().enumerate() {
             for (a_idx, &azimuth) in azimuths.iter().enumerate() {
-                let (x, y, z) = polar_to_cartesian(azimuth, elevation);
+                let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
                 sofa.filter_nointerp(x, y, z, &mut filter);
-
-                let left_transformed = fourier_transform(&filter.left, pad_length);
-                let right_transformed = fourier_transform(&filter.right, pad_length);
-
+        
+                let left_transformed = transform_filter(&filter.left, pad_length);
+                let right_transformed = transform_filter(&filter.right, pad_length);
+        
                 left_data[e_idx][a_idx] = left_transformed;
                 right_data[e_idx][a_idx] = right_transformed;
             }
@@ -74,12 +76,25 @@ impl HrtfFilter {
             filter_len: pad_length,
             left: HrtfFilterChannel { data: left_data },
             right: HrtfFilterChannel { data: right_data },
+            sofa
         }
     }
+
+    // pub fn for_angle(&self, azimuth: f32, elevation: f32) -> (Vec<Vec2>, Vec<Vec2>) {
+    //     let mut filter = Filter::new(self.sofa.filter_len());
+    //
+    //     let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
+    //     self.sofa.filter(x, y, z, &mut filter);
+    //
+    //     let left_transformed = transform_filter(&filter.left, GPU_WINDOW_SIZE);
+    //     let right_transformed = transform_filter(&filter.right, GPU_WINDOW_SIZE);
+    //
+    //     (left_transformed, right_transformed)
+    // }
 }
 
 pub struct HrtfFilterChannel {
-    data: Vec<Vec<Vec<Vec2>>> // azimuth<altitude<frequency<dampening>>>
+    data: Vec<Vec<Vec<Vec4>>> // azimuth<altitude<frequency<dampening>>>
 }
 
 impl GpuData for HrtfFilterChannel {
@@ -111,7 +126,7 @@ impl GpuData for HrtfFilterChannel {
     }
 }
 
-fn fourier_transform(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec2> {
+fn transform_filter(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec4> {
     assert!(pad_length > filter.len(), "Padded length must be equal or larger than the filter's length!");
 
     let mut vec: Vec<Vec2> = filter.iter().map(|tap| Vec2 {x: *tap, y: 0.0}).collect();
@@ -120,14 +135,34 @@ fn fourier_transform(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec2> {
         vec.push(Vec2 {x: 0.0, y: 0.0});
     }
 
-    FftModule::local_fourier_transform(vec, false)
-    // vec
+    let fourier = FftModule::local_fourier_transform(vec, false);
+
+    // The filter must also be converted to polar coordinates in order to enable interpolation
+    fourier
+        .iter()
+        .map(|val| cartesian_to_linear_polar(*val))
+        .collect()
 }
 
-fn polar_to_cartesian(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
+fn polar_to_cartesian_3d(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
     (
         elevation.cos() * azimuth.cos(),
         (elevation - PI / 2.0).sin(),
         elevation.cos() * azimuth.sin(),
     )
+}
+
+// todo: perform log interpolation
+fn cartesian_to_linear_polar(cartesian: Vec2) -> Vec4 {
+    // done in f64 to avoid as much precision loss as possible
+    let x = cartesian.x as f64;
+    let y = cartesian.y as f64;
+    let mag = f64::sqrt(x * x + y * y);
+
+    Vec4 {
+        x: mag as f32,
+        y: (x / mag) as f32,
+        z: (y / mag) as f32,
+        w: 0.0 // because RGB is much less supported than RGBA
+    }
 }

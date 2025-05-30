@@ -1,14 +1,15 @@
-// this module will be responsible for the audio sampling and splitting and stuff
+// this module will be responsible for the scene sampling and splitting and stuff
 // as well as its interface
 
 use std::f32::consts::PI;
 
 use rand::Rng;
-use crate::vulkan::signal_processor::FftFrame;
 
 pub mod hrtf_filter;
 mod source;
 mod listener;
+
+// todo: move to source
 
 pub(crate) const FRAME_SIZE: usize = 512;
 pub(crate) const FRAME_AMT: usize = 1;
@@ -39,10 +40,12 @@ impl AudioProvider {
             .expect("Failed to open wav file!");
 
         println!("bps {}, format {:?}", reader.spec().bits_per_sample, reader.spec().sample_format);
+        let channels = reader.spec().channels as usize;
         
         reader
             .samples::<i16>()
             .map(|s| s.unwrap())
+            .step_by(channels)
             .collect::<Vec<_>>()
             .chunks_exact(FRAME_SIZE)
             .map(|chunk|

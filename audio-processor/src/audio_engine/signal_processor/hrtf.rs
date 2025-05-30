@@ -1,8 +1,10 @@
-use crate::audio::{FRAME_AMT, FRAME_SIZE};
+use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
+use crate::scene::FRAME_AMT;
 use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue};
 use ash::Device;
 use std::array::from_ref;
-use std::rc::Rc;
+
+pub(crate) const MAX_DELAY_MS: u32 = 5000;
 
 pub struct HrtfModule {
     device: Device,
@@ -48,7 +50,7 @@ impl HrtfModule {
             self.pipeline
         );
 
-        let workgroups = (FRAME_SIZE as u32 / 64, FRAME_AMT as u32);
+        let workgroups = (GPU_WINDOW_SIZE as u32 / 64, FRAME_AMT as u32);
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

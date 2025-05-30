@@ -4,88 +4,21 @@ pub(crate) mod fft;
 mod hrtf;
 mod transfer;
 
-use crate::audio::hrtf_filter::HrtfFilter;
-use crate::audio::{FRAME_AMT, FRAME_SIZE};
-use crate::vulkan::buffer_uploader::BufferUploader;
-use crate::vulkan::signal_processor::fft::FftModule;
-use crate::vulkan::signal_processor::hrtf::HrtfModule;
-use crate::vulkan::signal_processor::transfer::TransferModule;
-use crate::vulkan::{read_file_words, GpuData};
-use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, BufferViewCreateInfo, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, SubmitInfo, WriteDescriptorSet, WHOLE_SIZE};
+use crate::audio_engine::buffer_uploader::BufferUploader;
+use crate::audio_engine::gpu_structures::{FftConstants, FftUbo, GpuFrame, GpuWindow, StreamBuffer, VirtualSources, GPU_WINDOW_SIZE};
+use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
+use crate::audio_engine::signal_processor::hrtf::HrtfModule;
+use crate::audio_engine::signal_processor::transfer::TransferModule;
+use crate::audio_engine::{read_file_words, GpuData};
+use crate::scene::hrtf_filter::HrtfFilter;
+use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, BufferViewCreateInfo, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::{Device, Instance};
-use crevice::std430::{AsStd430, Vec2, Vec4};
-use std::array::from_ref;
+use crevice::std430::{AsStd430, Vec2};
 use std::f32::consts::PI;
 use std::intrinsics::transmute;
 use std::rc::Rc;
+use std::slice::from_ref;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
-
-const RADIX_AMT: usize = 3;
-const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
-
-// The FFT algorithm for the GPU is divided into log(N) stages performing
-// butterfly operations on the data and shifting data around.
-// For performance reasons, each butterfly operation is performed, if possible,
-// on batches larger than 2 items at a time. This batch size is called the radix,
-// and allows greatly reduced amount of stages performed on the data.
-#[derive(Debug)]
-struct FftStage {
-    // The radix used for the stage of the FFT calculation.
-    radix: u32,
-
-    // How large the current "subarray" of data being processed is.
-    split_size: u32,
-
-    // The stride between data in a given shader invocation (= input_size / radix)
-    stride: u32
-}
-
-// todo: implement GpuData for these structs and use that trait instead
-
-#[derive(AsStd430)]
-struct FftUbo {
-    split_size: u32,
-    radix_stride: u32,
-    angle_direction_factor: f32,
-    angle_spin_factor: f32,
-    normalization_factor: f32,
-}
-
-#[repr(C)]
-struct FftConstants {
-    radix: i32,
-    frame_size: i32
-}
-
-// #[repr(C)]
-// #[derive(Copy, Clone, Debug)]
-// pub struct  {
-pub(crate) type FftFrame = [Vec2; FRAME_SIZE]; // todo: this is not just for fft, should be GPU frame or smth
-// }
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct FftBuffer {
-    pub frames: [FftFrame; FRAME_AMT]
-}
-
-struct HrtfUbo {
-    metadata: Vec4,
-}
-
-impl GpuData for HrtfUbo {
-    unsafe fn serialize(&self, dst: *mut u8) {
-        std::ptr::copy((&self.metadata as *const Vec4).cast(), dst, size_of::<Vec4>());
-    }
-
-    unsafe fn deserialize(_: *const u8) -> Box<Self> {
-        todo!("UBOs should not be deserialized!")
-    }
-
-    fn size(&self) -> usize {
-        size_of::<Vec4>()
-    }
-}
 
 pub struct SignalProcessor {
     device: Device,
@@ -130,7 +63,7 @@ impl SignalProcessor {
         buffer_uploader: &mut BufferUploader,
         filter: HrtfFilter
     ) -> Self {
-        let stages = FftModule::fft_stages(FRAME_SIZE);
+        let stages = FftModule::fft_stages(GPU_WINDOW_SIZE);
 
         let buffer_allocator = {
             let allocator_create_info = AllocatorCreateInfo::new(
@@ -186,7 +119,7 @@ impl SignalProcessor {
             let pool_sizes = [
                 DescriptorPoolSize::default()
                     .ty(DescriptorType::UNIFORM_BUFFER)
-                    .descriptor_count(3),
+                    .descriptor_count(4),
 
                 DescriptorPoolSize::default()
                     .ty(DescriptorType::STORAGE_BUFFER)
@@ -210,9 +143,9 @@ impl SignalProcessor {
                 .expect("Failed to create descriptor pool")
         };
 
-        let (cpu_buffer, cpu_buffer_memory, cpu_buffer_map) = {
+        let (cpu_buffers, cpu_buffer_memories, cpu_buffer_maps) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(size_of::<FftBuffer>() as u64 * 2)
+                .size(StreamBuffer::size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST)
                 .queue_family_indices(from_ref(&transfer_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -224,15 +157,26 @@ impl SignalProcessor {
                 ..Default::default()
             };
 
-            let (buffer, mut memory) = buffer_allocator
+            let (upload_buffer, mut upload_memory) = buffer_allocator
                 .create_buffer(&buffer_info, &allocation_info)
                 .expect("Failed to create buffer");
 
-            let map = buffer_allocator
-                .map_memory(&mut memory)
+            let upload_map = buffer_allocator
+                .map_memory(&mut upload_memory)
                 .expect("Failed to map memory");
 
-            (buffer, memory, map)
+            let buffer_info = buffer_info.size((size_of::<GpuWindow>() * 2) as u64);
+            // todo: different queues
+
+            let (download_buffer, mut download_memory) = buffer_allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer");
+
+            let download_map = buffer_allocator
+                .map_memory(&mut download_memory)
+                .expect("Failed to map memory");
+        
+            ([upload_buffer, download_buffer], [upload_memory, download_memory], [upload_map, download_map])
         };
 
         let (fft_ubos, fft_ubo_memories) = {
@@ -265,7 +209,7 @@ impl SignalProcessor {
 
                 // Populate the UBO
                 let direction: f32 = if inverse { -1.0 } else { 1.0 };
-                let normalization: f32 = if !inverse { 1.0  } else { 1.0 / stage.radix as f32}; // todo: i flipped these, make sure that was a right decision
+                let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32}; // todo: i flipped these, make sure that was a right decision
                 let data = FftUbo {
                     split_size: stage.split_size,
                     radix_stride: stage.stride,
@@ -286,7 +230,7 @@ impl SignalProcessor {
 
         let ((fft_gpu_buf_1, fft_gpu_mem_1), (fft_gpu_buf_2, fft_gpu_mem_2)) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(size_of::<FftBuffer>() as u64)
+                .size(StreamBuffer::size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -438,7 +382,7 @@ impl SignalProcessor {
                 .map(|radix| {
                     FftConstants {
                         radix: *radix as i32,
-                        frame_size: FRAME_SIZE as i32
+                        frame_size: GPU_WINDOW_SIZE as i32
                     }
                 })
                 .collect::<Vec<_>>();
@@ -479,7 +423,7 @@ impl SignalProcessor {
 
         let (mut hrtf_ubo, hrtf_ubo_memory) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(size_of::<HrtfUbo>() as u64)
+                .size(VirtualSources::size() as u64)
                 .usage(BufferUsageFlags::STORAGE_TEXEL_BUFFER | BufferUsageFlags::TRANSFER_DST)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -497,14 +441,14 @@ impl SignalProcessor {
         };
 
         // Populate the UBO
-        let data = HrtfUbo {
-            metadata: Vec4 {x:1.0, y:0.0, z:0.0, w: f32::from_bits(0)}
-        };
+        let mut data = VirtualSources::new();
+        data.push_source(0.0, 0.0, 1.0, 0);
+
         buffer_uploader.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut hrtf_ubo);
 
         let (hrtf_output, hrtf_output_memory) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(size_of::<FftFrame>() as u64 * 2)
+                .size(size_of::<GpuWindow>() as u64 * 2)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -522,7 +466,7 @@ impl SignalProcessor {
         let ((mut hrtf_left, hrtf_left_mem, hrtf_left_view), (mut hrtf_right, hrtf_right_mem, hrtf_right_view)) = {
             let image_info = ImageCreateInfo::default()
                 .image_type(ImageType::TYPE_3D)
-                .format(Format::R32_SFLOAT) // supported by 96.92% of devices
+                .format(Format::R32G32B32A32_SFLOAT) // supported by 96.92% of devices
                 .samples(SampleCountFlags::TYPE_1)
                 .tiling(ImageTiling::OPTIMAL)
                 .mip_levels(1)
@@ -537,7 +481,7 @@ impl SignalProcessor {
                 ..Default::default()
             };
 
-            println!("w{} h{} d{}", filter.options.azimuth_samples, filter.options.azimuth_samples, filter.filter_len);
+            println!("w{} h{} d{}", filter.options.azimuth_samples, filter.options.elevation_samples, filter.filter_len);
 
             let (left, left_mem) = buffer_allocator
                 .create_image(&image_info, &allocation_info)
@@ -555,7 +499,7 @@ impl SignalProcessor {
             let mut view_info = ImageViewCreateInfo::default()
                 .image(left)
                 .view_type(ImageViewType::TYPE_3D)
-                .format(Format::R32_SFLOAT)
+                .format(Format::R32G32B32A32_SFLOAT)
                 .subresource_range(subresource);
 
             let left_view = device
@@ -679,17 +623,17 @@ impl SignalProcessor {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(fft_gpu_buf_2) // TODO: this is hardcoded for frame size 512!
+                    .buffer(fft_gpu_buf_1) // TODO: this is hardcoded for window size 2048!
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
                     .buffer(hrtf_output)
                     .offset(0)
-                    .range(WHOLE_SIZE),
+                    .range(size_of::<GpuWindow>() as _),
 
                 DescriptorBufferInfo::default()
                     .buffer(hrtf_output)
-                    .offset(size_of::<FftFrame>() as _)
+                    .offset(size_of::<GpuWindow>() as _)
                     .range(WHOLE_SIZE),
             ];
 
@@ -818,34 +762,26 @@ impl SignalProcessor {
             buffer_allocator.clone(),
             device.clone(),
             transfer_queue.0.clone(),
-            cpu_buffer,
-            cpu_buffer_memory,
-            cpu_buffer_map,
+            cpu_buffers,
+            cpu_buffer_memories,
+            cpu_buffer_maps,
             transfer_fence
         );
 
         Self {
-            device, // refcell
+            device,
 
             buffer_allocator,
-            transfer_queue, // problem
-            compute_queue, // problem
+            transfer_queue, 
+            compute_queue,
             compute_command_buffer,
             transfer_command_buffer,
             fence,
-
-            // cpu_buffer,
-            // cpu_buffer_memory,
-            // cpu_buffer_map,
 
             fft_gpu_buffers: [fft_gpu_buf_1, fft_gpu_buf_2],
             fft_gpu_buffers_memory: [fft_gpu_mem_1, fft_gpu_mem_2],
             fft_ubos,
             fft_ubo_memories,
-            // fft_descriptor_sets,
-            // fft_descriptor_layout,
-            // fft_pipelines,
-            // fft_pipeline_layout,
 
             hrtf_ubo,
             hrtf_ubo_memory,
@@ -855,10 +791,6 @@ impl SignalProcessor {
             hrtf_memories: [hrtf_left_mem, hrtf_right_mem],
             hrtf_views: [hrtf_left_view, hrtf_right_view],
             hrtf_sampler,
-            // hrtf_descriptor_set,
-            // hrtf_descriptor_layout,
-            // hrtf_pipeline,
-            // hrtf_pipeline_layout,
 
             fft_module,
             hrtf_module,
@@ -866,10 +798,9 @@ impl SignalProcessor {
         }
     }
 
-    // todo: might switch to optional to remove a lot of these expects, in transfer.rs too.
-    pub unsafe fn process_frame(&mut self, frame: Box<FftBuffer>) -> (Box<FftFrame>, Box<FftFrame>) {
+    pub unsafe fn process_frames(&mut self, frames: Vec<GpuFrame>) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
-        self.transfer_module.transfer_to_gpu(&mut self.compute_command_buffer, frame, &self.fft_gpu_buffers[0]);
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.fft_gpu_buffers[0]);
 
         // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false);
@@ -878,18 +809,16 @@ impl SignalProcessor {
         self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);
 
         // transfer data back
-        self.transfer_module.transfer_from_gpu(&mut self.compute_command_buffer, &self.hrtf_output)
-    }
+        let (left_window, right_window) = self.transfer_module.download_windows(&mut self.compute_command_buffer, &self.hrtf_output);
 
-    pub unsafe fn gpu_fft(&mut self, frame: Box<FftFrame>) -> Box<FftFrame> {
-        self.transfer_module.transfer_to_gpu(&mut self.compute_command_buffer, frame, &self.fft_gpu_buffers[0]);
+        // let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
+        // let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
+        let (start, end) = StreamBuffer::last_frame_range();
 
-        // todo: have much more variable size in all of these! require a size parameter, and use push constants to indicate it
-        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false);
-
-        let (left, _) = self.transfer_module.transfer_from_gpu(&mut self.compute_command_buffer, &self.fft_gpu_buffers[1]);
-
-        left
+        (
+            GpuFrame::try_from(&window_to_vec(left_window)[start..end]).unwrap(),
+            GpuFrame::try_from(&window_to_vec(right_window)[start..end]).unwrap(),
+        )
     }
 }
 
@@ -900,10 +829,21 @@ impl Drop for SignalProcessor {
             for (alloc, buf) in self.fft_gpu_buffers_memory.iter_mut().zip(self.fft_gpu_buffers) {
                 self.buffer_allocator.destroy_buffer(buf, alloc);
             }
-            
+
+            for (alloc, buf) in self.fft_ubo_memories.iter_mut().zip(self.fft_ubos.clone()) {
+                self.buffer_allocator.destroy_buffer(buf, alloc);
+            }
+
             self.buffer_allocator.destroy_buffer(self.hrtf_ubo, &mut self.hrtf_ubo_memory);
+            self.buffer_allocator.destroy_buffer(self.hrtf_output, &mut self.hrtf_output_memory);
             self.buffer_allocator.destroy_image(self.hrtfs[0], &mut self.hrtf_memories[0]);
             self.buffer_allocator.destroy_image(self.hrtfs[1], &mut self.hrtf_memories[1]);
         }
     }
+}
+
+pub(crate) unsafe fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> {
+    // transmute the pointer without performing a copy; arrays in rust are guaranteed to be sequential
+    let flat_window = transmute::<Box<GpuWindow>, Box<[Vec2; GPU_WINDOW_SIZE]>>(window);
+    (flat_window as Box<[_]>).into_vec() // turn the box into a vector
 }

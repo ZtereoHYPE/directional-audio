@@ -2,10 +2,11 @@
 
 const float M_PI = radians(180);
 const float M_PI_HALF = radians(90);
-layout(constant_id = 0) const int FRAME_SIZE = 512;
+
+layout(constant_id = 0) const int FRAME_SIZE = 1024;
 layout(constant_id = 1) const float MIN_ELEVATION = 0;
-layout(constant_id = 2) const float MAX_ELEVATION = 2.0 * M_PI;
-layout(constant_id = 3) const int FILTER_SIZE = 128;
+layout(constant_id = 2) const float MAX_ELEVATION = M_PI;
+layout(constant_id = 3) const int FILTER_SIZE = 1024;
 
 // x = frequency, y = source
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
@@ -36,8 +37,14 @@ vec2 cartesian_to_polar(vec3 coords) {
     );
 }
 
-vec2 multComplexNumbers(vec2 a, vec2 b) {
+vec2 complex_mult(vec2 a, vec2 b) {
     return mat2(a.x, a.y, -a.y, a.x) * b;
+}
+
+vec2 decode_polar_filter(vec3 polar) {
+    if (length(polar) < 0.0001) return vec2(89273234234948.0, 23899847289374.0);
+    vec2 normalized = normalize(polar.yz);
+    return vec2(normalized.x * polar.x, normalized.y * polar.x);
 }
 
 void main() {
@@ -55,14 +62,13 @@ void main() {
     vec3 texCoord = vec3(
         coords.x / (2.0 * M_PI),
         (coords.y / (MAX_ELEVATION - MIN_ELEVATION)) - MIN_ELEVATION,
-        float(gl_GlobalInvocationID.x) / float(FILTER_SIZE)
+        float(gl_GlobalInvocationID.x / FILTER_SIZE)
     );
 
-//    vec3 texCoords = vec3(0.8, 0.5, float(gl_GlobalInvocationID.x) / float(FILTER_SIZE));
+    vec3 texCoordFixed = vec3(0.25, 0.5, float(gl_GlobalInvocationID.x) / float(FILTER_SIZE));
 
-    leftOutput[gl_GlobalInvocationID.x] += multComplexNumbers(samples[gl_GlobalInvocationID.x + frame], texture(hrtfLeft, texCoord).xy);
-    rightOutput[gl_GlobalInvocationID.x] += multComplexNumbers(samples[gl_GlobalInvocationID.x + frame], texture(hrtfRight, texCoord).xy);
-
-//    leftOutput[gl_GlobalInvocationID.x] = texture(hrtfLeft, texCoords).xy;
-//    rightOutput[gl_GlobalInvocationID.x] = texture(hrtfRight, texCoords).xy;
+    leftOutput[gl_GlobalInvocationID.x] = complex_mult(samples[gl_GlobalInvocationID.x + frame], decode_polar_filter(texture(hrtfLeft, texCoordFixed).xyz));
+    rightOutput[gl_GlobalInvocationID.x] = complex_mult(samples[gl_GlobalInvocationID.x + frame], decode_polar_filter(texture(hrtfRight, texCoordFixed).xyz));
+//    leftOutput[gl_GlobalInvocationID.x] = samples[gl_GlobalInvocationID.x + frame];
+//    rightOutput[gl_GlobalInvocationID.x] = samples[gl_GlobalInvocationID.x + frame];
 }

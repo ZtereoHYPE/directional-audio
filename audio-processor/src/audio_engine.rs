@@ -1,23 +1,26 @@
-use crate::vulkan::buffer_uploader::BufferUploader;
-use crate::vulkan::ray_tracer::RayTracer;
-use crate::vulkan::signal_processor::{FftBuffer, FftFrame, SignalProcessor};
+#[allow(unsafe_op_in_unsafe_fn)]
+
+use crate::audio_engine::buffer_uploader::BufferUploader;
+use crate::audio_engine::gpu_structures::{GpuFrame, GPU_WINDOW_SIZE};
+use crate::audio_engine::ray_tracer::RayTracer;
+use crate::audio_engine::signal_processor::SignalProcessor;
+use crate::scene::hrtf_filter::{HrtfFilter, HrtfOptions};
+use crate::scene::{Frame, FRAME_SIZE};
 use ash::ext::debug_utils;
 use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, InstanceCreateInfo};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
+use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::borrow::Cow;
+use std::f32::consts::PI;
 use std::ffi::{c_char, CStr};
 use std::{fs::File, path::Path};
-use std::f32::consts::PI;
 use vk_mem::Allocation;
-use crate::audio::FRAME_SIZE;
-use crate::audio::hrtf_filter::{HrtfFilter, HrtfOptions};
-use crate::vulkan::signal_processor::fft::FftModule;
 
 pub(crate) mod signal_processor;
+pub(crate) mod gpu_structures;
 mod ray_tracer;
 mod buffer_uploader;
-mod test;
 
 struct GpuBuffer {
     buffer: Buffer,
@@ -45,7 +48,7 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub(crate) unsafe fn new() -> Self {
-        let entry = Entry::load().expect("Could not load vulkan library");
+        let entry = Entry::load().expect("Could not load audio_engine library");
 
         let instance = {
             let layers_names_raw: [*const c_char; 1] = [c"VK_LAYER_KHRONOS_validation"] // c"VK_LAYER_LUNARG_api_dump"
@@ -66,7 +69,7 @@ impl AudioEngine {
 
             entry
                 .create_instance(&instance_info, None)
-                .expect("Failed to create vulkan instance")
+                .expect("Failed to create audio_engine instance")
         };
 
         let debug_callback = {
@@ -127,16 +130,14 @@ impl AudioEngine {
         let compute_queue = device.get_device_queue(queue_family_index, 0);
 
         let filter_options = HrtfOptions {
-            //elevation_samples: 90, // one every 2 deg
-            //azimuth_samples: 180, // one every 2 deg
-            azimuth_samples: 90,
-            elevation_samples: 180,
+            azimuth_samples: 180, // one every 2 deg
+            elevation_samples: 90, // one every 2 deg
             elevation_max: PI, // full sphere was captured
             elevation_min: 0.0, // "
-            sampling_rate: 48000.0
+            sampling_rate: 44100.0
         };
 
-        let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", FRAME_SIZE);
+        let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", GPU_WINDOW_SIZE); //todo: explore with lower size...
 
         let mut buffer_uploader = BufferUploader::new(
             &instance,
@@ -169,23 +170,18 @@ impl AudioEngine {
         }
     }
 
-    pub(crate) fn process_frames(&mut self, frame: Box<FftBuffer>) -> (Box<FftFrame>, Box<FftFrame>) {
-        let (left, right) = unsafe {
-            self.signal_processor.process_frame(frame)
-        };
-        
-        (
-            FftModule::local_fourier_transform((*left).into(), true).try_into().unwrap(), 
-            FftModule::local_fourier_transform((*right).into(), true).try_into().unwrap()
-        )
-    }
-
-    pub(crate) fn fft_gpu(&mut self, frame: Box<FftFrame>) -> Box<FftFrame> {
+    pub(crate) fn process_frames(&mut self, frames: Vec<Frame>) -> (Frame, Frame) {
         unsafe {
-            self.signal_processor.gpu_fft(frame)
+            let gpu_frames = frames.iter().map(|f| frame_to_gpu(f)).collect();
+            let (left, right) = self.signal_processor.process_frames(gpu_frames);
+
+            (
+                gpu_to_frame(&left),
+                gpu_to_frame(&right)
+            )
         }
     }
-    
+
     unsafe extern "system" fn debug_callback(
         message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
         message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -228,4 +224,25 @@ fn read_file_words(path: impl AsRef<Path>) -> Vec<u32> {
     let mut file = File::open(&path).unwrap();
 
     ash::util::read_spv(&mut file).unwrap()
+}
+
+pub(crate) fn frame_to_gpu(frame: &Frame) -> GpuFrame {
+    // todo: avoid initialization here
+    let mut samples = [Vec2{x: 0.0, y: 0.0}; FRAME_SIZE];
+
+    for (idx, value) in frame.iter().enumerate() {
+        samples[idx].x = *value;
+    }
+
+    samples
+}
+
+pub(crate) fn gpu_to_frame(input: &GpuFrame) -> Frame {
+    let mut frame: Frame = [0.0; FRAME_SIZE];
+
+    for (idx, value) in input.iter().enumerate() {
+        frame[idx] = value.x;
+    }
+
+    frame
 }

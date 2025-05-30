@@ -13,7 +13,19 @@
 
     The above copyright notice and this permission notice shall be included in all
     copies or substantial portions of the Software.
-
+t filter = Filter::new(filter_len);
+        for (e_idx, &elevation) in elevations.iter().enumerate() {
+            for (a_idx, &azimuth) in azimuths.iter().enumerate() {
+                let (x, y, z) = polar_to_cartesian(azimuth, elevation);
+                sofa.filter_nointerp(x, y, z, &mut filter);
+        
+                let left_transformed = fourier_transform(&filter.left, pad_length);
+                let right_transformed = fourier_transform(&filter.right, pad_length);
+        
+                left_data[e_idx][a_idx] = left_transformed;
+                right_data[e_idx][a_idx] = right_transformed;
+            }
+        }
     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -31,7 +43,7 @@ const float M_SQRT1_2 = 1.0 / sqrt(2.0);
 // todo: more more of these (including layout) to spec constants
 const int MAX_RADIX = 8;
 layout(constant_id = 0) const int RADIX = 8;
-layout(constant_id = 1) const int FRAME_SIZE = 512;
+layout(constant_id = 1) const int FRAME_SIZE = 2048;
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
@@ -115,7 +127,7 @@ void fft8(inout vec2 values[MAX_RADIX], vec2 w) {
     swapComplexNumbers(values[3], values[6]);
 }
 
-
+// todo: 16-pass fft later
 
 void main() {
     uint invocationInBlock = gl_GlobalInvocationID.x & (ubo.splitSize - 1u);

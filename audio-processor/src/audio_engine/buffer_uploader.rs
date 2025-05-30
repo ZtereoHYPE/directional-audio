@@ -1,13 +1,13 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::vulkan::GpuData;
+use crate::audio_engine::GpuData;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
 use std::u64::MAX;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 
-const STAGING_BUFFER_SIZE: u64 = 128 * 1024 * 1024; // 128 MB
+const STAGING_BUFFER_SIZE: u64 = 256 * 1024 * 1024; // 128 MB
 
 // Util object to one-time upload data to a buffer using a staging buffer
 pub(crate) struct BufferUploader {
@@ -224,4 +224,6 @@ impl BufferUploader {
             .begin_command_buffer(self.command_buffer, &begin_info)
             .expect("Failed to begin command buffer recording");
     }
+    
+    // todo: buffer clearer (vkcmdclearnuffer)
 }
