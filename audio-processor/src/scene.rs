@@ -58,4 +58,16 @@ impl AudioProvider {
             )
             .collect::<Vec<Frame>>()
     }
+
+    pub fn frequency(freq: f32) -> Frame {
+        let mut buffer = [0.0; FRAME_SIZE];
+        let mut phase: f32 = 0.0;
+        
+        for value in buffer.iter_mut() {
+            *value = phase.sin() * 100.0;
+            phase += 2.0 * PI * (freq / 44100.0);
+        }
+
+        buffer
+    }
 }

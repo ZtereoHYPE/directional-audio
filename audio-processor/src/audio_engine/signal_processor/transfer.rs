@@ -61,6 +61,7 @@ impl TransferModule {
             .begin_command_buffer(*command_buffer, &begin_info)
             .expect("Failed to begin command buffer recording");
 
+        // todo: do one region per uploaded frame
         let region = BufferCopy::default()
             .size(StreamBuffer::size() as _);
 

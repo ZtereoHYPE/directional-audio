@@ -1,4 +1,5 @@
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(unused)]
 
 use crate::audio_engine::GpuData;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
@@ -125,7 +126,9 @@ impl BufferUploader {
             .expect("Failed to submit command buffer");
 
         // wait for fence
-        device.wait_for_fences(from_ref(&self.fence), true, MAX);
+        device
+            .wait_for_fences(from_ref(&self.fence), true, MAX)
+            .expect("Failed to wait for fences");
     }
 
     // warning: this also transitions the image layout
@@ -184,7 +187,9 @@ impl BufferUploader {
         );
 
         // submit
-        device.end_command_buffer(self.command_buffer);
+        device
+            .end_command_buffer(self.command_buffer)
+            .expect("Failed to end command buffer");
 
         let submit_info = SubmitInfo::default()
             .command_buffers(from_ref(&self.command_buffer));
@@ -206,11 +211,15 @@ impl BufferUploader {
             todo!("Uploading data bigger than the staging buffer isn't supported yet");
         }
 
-        device.reset_fences(from_ref(&self.fence));
+        device
+            .reset_fences(from_ref(&self.fence))
+            .expect("Failed to reset fences");
 
         // copy data to the staging buffer
         src.serialize(self.staging_map);
-        self.allocator.flush_allocation(&self.staging_memory, 0, WHOLE_SIZE);
+        self.allocator
+            .flush_allocation(&self.staging_memory, 0, WHOLE_SIZE)
+            .expect("Failed to flush allocation");
 
         // reset and begin command buffer
         device
@@ -225,5 +234,5 @@ impl BufferUploader {
             .expect("Failed to begin command buffer recording");
     }
     
-    // todo: buffer clearer (vkcmdclearnuffer)
+    // todo: buffer clearer (vkcmdclearbuffer)
 }

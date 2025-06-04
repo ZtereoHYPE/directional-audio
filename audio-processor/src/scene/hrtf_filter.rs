@@ -3,10 +3,11 @@
 
 use std::f32::consts::PI;
 
+use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
 use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::GpuData;
-use crevice::std430::Vec4;
 use crevice::std430::Vec2;
+use crevice::std430::Vec4;
 use sofar::reader::{Filter, OpenOptions, Sofar};
 
 pub struct HrtfOptions {
@@ -45,8 +46,8 @@ impl HrtfFilter {
         };
 
         let elevations: Vec<f32> = {
-            let elevation_range = (options.elevation_max - options.elevation_min) as f32;
-            let sample_distance = (options.elevation_samples as f32) / elevation_range;
+            let elevation_range = (options.elevation_max - options.elevation_min);
+            let sample_distance = elevation_range / ((options.elevation_samples - 1) as f32);
             
             (0..options.elevation_samples)
                 .map(|e| (e as f32) * sample_distance + options.elevation_min)
@@ -54,20 +55,20 @@ impl HrtfFilter {
         };
         
         // allocate the space except for the inntermost vector which will be set later
-        let mut left_data = vec![vec![vec![]; azimuths.len()]; elevations.len()];
-        let mut right_data = vec![vec![vec![]; azimuths.len()]; elevations.len()];
+        let mut left_data = vec![vec![vec![]; elevations.len()]; azimuths.len()];
+        let mut right_data = vec![vec![vec![]; elevations.len()]; azimuths.len()];
 
         let mut filter = Filter::new(filter_len);
-        for (e_idx, &elevation) in elevations.iter().enumerate() {
-            for (a_idx, &azimuth) in azimuths.iter().enumerate() {
+        for (a_idx, &azimuth) in azimuths.iter().enumerate() {
+            for (e_idx, &elevation) in elevations.iter().enumerate() {
                 let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
                 sofa.filter_nointerp(x, y, z, &mut filter);
-        
+                
                 let left_transformed = transform_filter(&filter.left, pad_length);
                 let right_transformed = transform_filter(&filter.right, pad_length);
-        
-                left_data[e_idx][a_idx] = left_transformed;
-                right_data[e_idx][a_idx] = right_transformed;
+                
+                left_data[a_idx][e_idx] = left_transformed;
+                right_data[a_idx][e_idx] = right_transformed;
             }
         }
 
@@ -80,17 +81,25 @@ impl HrtfFilter {
         }
     }
 
-    // pub fn for_angle(&self, azimuth: f32, elevation: f32) -> (Vec<Vec2>, Vec<Vec2>) {
-    //     let mut filter = Filter::new(self.sofa.filter_len());
-    //
-    //     let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
-    //     self.sofa.filter(x, y, z, &mut filter);
-    //
-    //     let left_transformed = transform_filter(&filter.left, GPU_WINDOW_SIZE);
-    //     let right_transformed = transform_filter(&filter.right, GPU_WINDOW_SIZE);
-    //
-    //     (left_transformed, right_transformed)
-    // }
+    /// elevation is 0..PI, azimuth is 0..2PI
+    pub fn for_angle(&self, azimuth: f32, elevation: f32) -> (Vec<Vec2>, Vec<Vec2>) {
+        let mut filter = Filter::new(self.sofa.filter_len());
+
+        let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
+        self.sofa.filter(x, y, z, &mut filter);
+
+        let left_transformed = transform_filter(&filter.left, GPU_WINDOW_SIZE)
+            .iter()
+            .map(|f| linear_polar_to_cartesian(*f))
+            .collect();
+
+        let right_transformed = transform_filter(&filter.right, GPU_WINDOW_SIZE)
+            .iter()
+            .map(|f| linear_polar_to_cartesian(*f))
+            .collect();
+
+        (left_transformed, right_transformed)
+    }
 }
 
 pub struct HrtfFilterChannel {
@@ -101,7 +110,7 @@ impl GpuData for HrtfFilterChannel {
     unsafe fn serialize(&self, mut dst: *mut u8) {
         for azimuth in &self.data {
             for elevation in azimuth {
-                let len = elevation.len() * size_of::<f32>();
+                let len = elevation.len() * size_of::<Vec4>();
                 let src = elevation.as_ptr().cast();
 
                 unsafe {
@@ -122,7 +131,7 @@ impl GpuData for HrtfFilterChannel {
         let elevations = self.data[0].len(); 
         let filter_len = self.data[0][0].len();
 
-        azimuths * elevations * filter_len * size_of::<Vec2>()
+        azimuths * elevations * filter_len * size_of::<Vec4>()
     }
 }
 
@@ -144,11 +153,13 @@ fn transform_filter(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec4> {
         .collect()
 }
 
+/// elevation is 0..PI where 0 is the top and PI is the bottom
+/// azimuth is 0..2PI
 fn polar_to_cartesian_3d(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
     (
-        elevation.cos() * azimuth.cos(),
-        (elevation - PI / 2.0).sin(),
-        elevation.cos() * azimuth.sin(),
+        elevation.sin() * azimuth.cos(),
+        elevation.cos(),
+        elevation.sin() * azimuth.sin(),
     )
 }
 
@@ -164,5 +175,15 @@ fn cartesian_to_linear_polar(cartesian: Vec2) -> Vec4 {
         y: (x / mag) as f32,
         z: (y / mag) as f32,
         w: 0.0 // because RGB is much less supported than RGBA
+    }
+}
+
+fn linear_polar_to_cartesian(polar: Vec4) -> Vec2 {
+    let len = (polar.y * polar.y + polar.z * polar.z).sqrt();
+    let normalized = Vec2{x: polar.y / len, y: polar.z / len};
+
+    Vec2 {
+        x: normalized.x * polar.x,
+        y: normalized.y * polar.x,
     }
 }

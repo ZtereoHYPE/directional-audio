@@ -1,4 +1,5 @@
 #![allow(unsafe_op_in_unsafe_fn)]
+#![allow(unused)]
 
 pub(crate) mod fft;
 mod hrtf;
@@ -442,7 +443,7 @@ impl SignalProcessor {
 
         // Populate the UBO
         let mut data = VirtualSources::new();
-        data.push_source(0.0, 0.0, 1.0, 0);
+        data.push_source(500.0, 500.0, 1.0, 0);
 
         buffer_uploader.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut hrtf_ubo);
 
@@ -471,7 +472,7 @@ impl SignalProcessor {
                 .tiling(ImageTiling::OPTIMAL)
                 .mip_levels(1)
                 .array_layers(1)
-                .extent(Extent3D {width: filter.options.azimuth_samples, height: filter.options.elevation_samples, depth: filter.filter_len as u32})
+                .extent(Extent3D {width: filter.filter_len as u32, height: filter.options.elevation_samples, depth: filter.options.azimuth_samples})
                 .usage(ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED)
                 .sharing_mode(SharingMode::EXCLUSIVE)
                 .initial_layout(ImageLayout::UNDEFINED);
@@ -480,8 +481,6 @@ impl SignalProcessor {
                 usage: vk_mem::MemoryUsage::AutoPreferDevice,
                 ..Default::default()
             };
-
-            println!("w{} h{} d{}", filter.options.azimuth_samples, filter.options.elevation_samples, filter.filter_len);
 
             let (left, left_mem) = buffer_allocator
                 .create_image(&image_info, &allocation_info)
@@ -517,9 +516,9 @@ impl SignalProcessor {
 
         // Upload the HRTF data to the images
         let extent = Extent3D {
-            width: filter.options.azimuth_samples,
+            width: filter.filter_len as u32,
             height: filter.options.elevation_samples,
-            depth: filter.filter_len as u32,
+            depth: filter.options.azimuth_samples,
         };
 
         buffer_uploader.upload_image_onetime(
@@ -811,14 +810,30 @@ impl SignalProcessor {
         // transfer data back
         let (left_window, right_window) = self.transfer_module.download_windows(&mut self.compute_command_buffer, &self.hrtf_output);
 
-        // let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
-        // let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
+        let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
+        let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
         let (start, end) = StreamBuffer::last_frame_range();
 
         (
-            GpuFrame::try_from(&window_to_vec(left_window)[start..end]).unwrap(),
-            GpuFrame::try_from(&window_to_vec(right_window)[start..end]).unwrap(),
+            GpuFrame::try_from(&left[start..end]).unwrap(),
+            GpuFrame::try_from(&right[start..end]).unwrap(),
         )
+    }
+
+    pub unsafe fn process_frames_frequency(&mut self, frames: Vec<GpuFrame>) -> (Vec<Vec2>, Vec<Vec2>) {
+        // transfer data to right buffer
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.fft_gpu_buffers[0]);
+
+        // perform fourier transform
+        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false);
+
+        // perform HRTF dsp
+        self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);
+
+        // transfer data back
+        let (left, right) = self.transfer_module.download_windows(&mut self.compute_command_buffer, &self.hrtf_output);
+
+        (window_to_vec(left), window_to_vec(right))
     }
 }
 

@@ -182,6 +182,13 @@ impl AudioEngine {
         }
     }
 
+    pub(crate) fn process_frames_frequency(&mut self, frames: Vec<Frame>) -> (Vec<Vec2>, Vec<Vec2>) {
+        unsafe {
+            let gpu_frames = frames.iter().map(|f| frame_to_gpu(f)).collect();
+            self.signal_processor.process_frames_frequency(gpu_frames)
+        }
+    }
+
     unsafe extern "system" fn debug_callback(
         message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
         message_type: vk::DebugUtilsMessageTypeFlagsEXT,

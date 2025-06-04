@@ -3,13 +3,23 @@
 const float M_PI = radians(180);
 const float M_PI_HALF = radians(90);
 
-layout(constant_id = 0) const int FRAME_SIZE = 1024;
-layout(constant_id = 1) const float MIN_ELEVATION = 0;
-layout(constant_id = 2) const float MAX_ELEVATION = M_PI;
-layout(constant_id = 3) const int FILTER_SIZE = 1024;
+//const float SOUND_SPEED = 340.29;
+
+layout(constant_id = 0) const int WINDOW_SIZE = 1024;
+layout(constant_id = 1) const int FRAME_SIZE = 512;
+layout(constant_id = 2) const int FILTER_SIZE = 1024;
+
+layout(constant_id = 3) const float MIN_ELEVATION = 0;
+layout(constant_id = 4) const float MAX_ELEVATION = M_PI;
+
+layout(constant_id = 5) const float SAMPLING_RATE = 44100;
 
 // x = frequency, y = source
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant, std430) uniform Time {
+    uint frame_idx;
+};
 
 // todo: figure out how to do this
 layout(set = 0, binding = 0, rgba32f) uniform imageBuffer metadata; // rgb is position, floatBitsToInt(alpha) is sound idx
@@ -29,11 +39,11 @@ layout(set = 0, binding = 3, std430) coherent restrict buffer OutputRight {
 layout(set = 0, binding = 4) uniform sampler3D hrtfLeft;
 layout(set = 0, binding = 5) uniform sampler3D hrtfRight;
 
-
+// Returns (azimuth, elevation)
 vec2 cartesian_to_polar(vec3 coords) {
     return vec2(
-        asin(coords.y) + M_PI_HALF,
-        atan(coords.z, coords.x)
+        atan(coords.z, coords.x),
+        acos(coords.y)
     );
 }
 
@@ -42,9 +52,29 @@ vec2 complex_mult(vec2 a, vec2 b) {
 }
 
 vec2 decode_polar_filter(vec3 polar) {
-    if (length(polar) < 0.0001) return vec2(89273234234948.0, 23899847289374.0);
+//    if (length(polar) < 0.0001) return vec2(45894329859.0, 349058349058.0); // uh
     vec2 normalized = normalize(polar.yz);
     return vec2(normalized.x * polar.x, normalized.y * polar.x);
+}
+
+float attenuation(float f, float dist) {
+    const float T_REF = 293.15;
+    const float T = T_REF;
+    const float T_ZERO = 273.16;
+    const float RH = 0.5; // 50% relative humidity!
+
+    const float P_SAT = pow(10, -6.8346 * pow(T_ZERO / T, 1.261) + 4.6151);
+    const float H = RH * P_SAT;
+
+    const float F_RO = 24.0 + 40400.0 * H * (0.02 + H) / (0.391 + H);
+    const float F_RN = pow(T_REF / T, 0.5) * (9 + 280.0 * H * exp(-4.17 * (pow(T_REF / T, 1.0 / 3.0) - 1)));
+
+    float f2 = f * f;
+    float alpha = f2 * (1.84 * pow(10, -11) * pow(T / T_REF, 0.5)
+                         + pow(T / T_REF, -2.5) * (0.01278 * exp(-2239.1 / T) / (F_RO + f2 / F_RO))
+                                                   + 0.1068 * exp(-3352.0 / T) / (F_RN + f2 / F_RN));
+
+    return exp(-alpha * dist);
 }
 
 void main() {
@@ -53,22 +83,42 @@ void main() {
     // - coherent buffer access (better in warp or across warps?)
     // - frames access (better continuous in invocation, or split throughout warp?)
     // - caching?
+    
+    // todo: experiment with summing local memory first and then only writing here if you the last thread; it should be MUCH fastr.
+    //  basically, all the threads must write their output to local memory and then barrier. after the barrier, one thread can do the sum and write it
+    //  and the rest can just "terminate"; or use subgroupAdd() (subgroups should be vertical slices in that case)
 
-    vec4 source = imageLoad(metadata, int(gl_GlobalInvocationID.y));
-    vec2 coords = cartesian_to_polar(source.xyz);
-    int frame = floatBitsToInt(source.a) * FRAME_SIZE;
+    uint idx = gl_GlobalInvocationID.x;
+
+    vec4 source = imageLoad(metadata, int(idx));
+    float dist = length(source.xyz);
+    vec2 polar_coords = cartesian_to_polar(source.xyz);
+    int window_idx = floatBitsToInt(source.a) * WINDOW_SIZE;
 
     // Normalized coordinates
-    vec3 texCoord = vec3(
-        coords.x / (2.0 * M_PI),
-        (coords.y / (MAX_ELEVATION - MIN_ELEVATION)) - MIN_ELEVATION,
-        float(gl_GlobalInvocationID.x / FILTER_SIZE)
-    );
+//    vec3 texCoord = vec3(
+//        float(idx) / FILTER_SIZE.
+//        (polar_coords.y / (MAX_ELEVATION - MIN_ELEVATION)) - MIN_ELEVATION,
+//        polar_coords.x / (2.0 * M_PI)
+//    );
+    vec3 texCoord = vec3(float(idx) / FILTER_SIZE, .39857, .928747);
+    vec2 left_hrtf = decode_polar_filter(texture(hrtfLeft, texCoord).xyz);
+    vec2 right_hrtf = decode_polar_filter(texture(hrtfRight, texCoord).xyz);
+    
+    vec2 Xk = vec2(samples[idx + window_idx]);
+//    float frequency = float(idx) / WINDOW_SIZE * SAMPLING_RATE;
+//    vec2 attenuated = Xk * attenuation(frequency, 10000);
 
-    vec3 texCoordFixed = vec3(0.25, 0.5, float(gl_GlobalInvocationID.x) / float(FILTER_SIZE));
+    vec2 attenuated_left = complex_mult(Xk, left_hrtf);
+    vec2 attenuated_right = complex_mult(Xk, right_hrtf);
+//    vec2 attenuated_left = left_hrtf;
+//    vec2 attenuated_right = right_hrtf;
 
-    leftOutput[gl_GlobalInvocationID.x] = complex_mult(samples[gl_GlobalInvocationID.x + frame], decode_polar_filter(texture(hrtfLeft, texCoordFixed).xyz));
-    rightOutput[gl_GlobalInvocationID.x] = complex_mult(samples[gl_GlobalInvocationID.x + frame], decode_polar_filter(texture(hrtfRight, texCoordFixed).xyz));
-//    leftOutput[gl_GlobalInvocationID.x] = samples[gl_GlobalInvocationID.x + frame];
-//    rightOutput[gl_GlobalInvocationID.x] = samples[gl_GlobalInvocationID.x + frame];
+    leftOutput[idx] = attenuated_left;
+    rightOutput[idx] = attenuated_right;
+
+    if (idx != 0 && idx != WINDOW_SIZE / 2) {
+        leftOutput[WINDOW_SIZE - idx] = vec2(attenuated_left.x, -attenuated_left.y);
+        rightOutput[WINDOW_SIZE - idx] = vec2(attenuated_right.x, -attenuated_right.y);
+    }
 }

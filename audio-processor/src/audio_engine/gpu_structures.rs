@@ -67,6 +67,7 @@ impl StreamBuffer {
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
     }
     
+    // todo: improve by allowing to insert individual frames at an index to not have to allocate a vector
     pub(crate) fn insert_frames(&mut self, frames: Vec<GpuFrame>) {
         for (idx, window) in self.windows.iter_mut().enumerate() {
             window.copy_within(1..SLIDING_WINDOW_FRAME_AMT, 0); // slide the elements 1-4 to 0-3
