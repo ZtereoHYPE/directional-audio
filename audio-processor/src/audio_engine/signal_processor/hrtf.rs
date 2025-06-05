@@ -50,7 +50,7 @@ impl HrtfModule {
             self.pipeline
         );
 
-        let workgroups = (GPU_WINDOW_SIZE as u32 / 64 / 2, FRAME_AMT as u32);
+        let workgroups = (GPU_WINDOW_SIZE as u32 / 64 / 2 + 1, FRAME_AMT as u32);
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

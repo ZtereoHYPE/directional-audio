@@ -46,11 +46,11 @@ impl HrtfFilter {
         };
 
         let elevations: Vec<f32> = {
-            let elevation_range = (options.elevation_max - options.elevation_min);
+            let elevation_range = (options.elevation_max - options.elevation_min).abs();
             let sample_distance = elevation_range / ((options.elevation_samples - 1) as f32);
             
             (0..options.elevation_samples)
-                .map(|e| (e as f32) * sample_distance + options.elevation_min)
+                .map(|e| (e as f32) * sample_distance + options.elevation_max)
                 .collect::<Vec<_>>()
         };
         
@@ -158,8 +158,8 @@ fn transform_filter(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec4> {
 fn polar_to_cartesian_3d(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
     (
         elevation.sin() * azimuth.cos(),
-        elevation.cos(),
         elevation.sin() * azimuth.sin(),
+        elevation.cos(),
     )
 }
 

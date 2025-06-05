@@ -3,14 +3,13 @@
 const float M_PI = radians(180);
 const float M_PI_HALF = radians(90);
 
-//const float SOUND_SPEED = 340.29;
 
 layout(constant_id = 0) const int WINDOW_SIZE = 1024;
 layout(constant_id = 1) const int FRAME_SIZE = 512;
 layout(constant_id = 2) const int FILTER_SIZE = 1024;
 
-layout(constant_id = 3) const float MIN_ELEVATION = 0;
-layout(constant_id = 4) const float MAX_ELEVATION = M_PI;
+layout(constant_id = 3) const float MIN_ELEVATION = M_PI;
+layout(constant_id = 4) const float MAX_ELEVATION = 0;
 
 layout(constant_id = 5) const float SAMPLING_RATE = 44100;
 
@@ -39,11 +38,13 @@ layout(set = 0, binding = 3, std430) coherent restrict buffer OutputRight {
 layout(set = 0, binding = 4) uniform sampler3D hrtfLeft;
 layout(set = 0, binding = 5) uniform sampler3D hrtfRight;
 
-// Returns (azimuth, elevation)
-vec2 cartesian_to_polar(vec3 coords) {
+vec2 cartesian_to_tex_coords(vec3 coords) {
+    float radius = length(coords);
     return vec2(
-        atan(coords.z, coords.x),
-        acos(coords.y)
+        // here we want the range of elevations between max and min to be stretched to 0 and 1, 
+        // and everything else to fall outside
+        acos(coords.z / radius) / (MIN_ELEVATION - MAX_ELEVATION) - MAX_ELEVATION,
+        atan(coords.y, coords.x) / (2.0 * M_PI)
     );
 }
 
@@ -52,7 +53,6 @@ vec2 complex_mult(vec2 a, vec2 b) {
 }
 
 vec2 decode_polar_filter(vec3 polar) {
-//    if (length(polar) < 0.0001) return vec2(45894329859.0, 349058349058.0); // uh
     vec2 normalized = normalize(polar.yz);
     return vec2(normalized.x * polar.x, normalized.y * polar.x);
 }
@@ -88,37 +88,36 @@ void main() {
     //  basically, all the threads must write their output to local memory and then barrier. after the barrier, one thread can do the sum and write it
     //  and the rest can just "terminate"; or use subgroupAdd() (subgroups should be vertical slices in that case)
 
-    uint idx = gl_GlobalInvocationID.x;
+    uint sample_idx = gl_GlobalInvocationID.x;
+    uint source_idx = gl_GlobalInvocationID.y;
 
-    vec4 source = imageLoad(metadata, int(idx));
+    vec4 source = imageLoad(metadata, int(source_idx));
     float dist = length(source.xyz);
-    vec2 polar_coords = cartesian_to_polar(source.xyz);
-    int window_idx = floatBitsToInt(source.a) * WINDOW_SIZE;
+    int stream_offset = floatBitsToInt(source.a) * WINDOW_SIZE;
 
     // Normalized coordinates
-//    vec3 texCoord = vec3(
-//        float(idx) / FILTER_SIZE.
-//        (polar_coords.y / (MAX_ELEVATION - MIN_ELEVATION)) - MIN_ELEVATION,
-//        polar_coords.x / (2.0 * M_PI)
-//    );
-    vec3 texCoord = vec3(float(idx) / FILTER_SIZE, .39857, .928747);
-    vec2 left_hrtf = decode_polar_filter(texture(hrtfLeft, texCoord).xyz);
-    vec2 right_hrtf = decode_polar_filter(texture(hrtfRight, texCoord).xyz);
+    vec3 hrtf_tex_coord = vec3(
+        float(sample_idx) / FILTER_SIZE,
+        cartesian_to_tex_coords(source.xyz)
+    );
+
+    vec2 left_hrtf = decode_polar_filter(texture(hrtfLeft, hrtf_tex_coord).xyz);
+    vec2 right_hrtf = decode_polar_filter(texture(hrtfRight, hrtf_tex_coord).xyz);
     
-    vec2 Xk = vec2(samples[idx + window_idx]);
+    vec2 Xk = vec2(samples[sample_idx + stream_offset]);
 //    float frequency = float(idx) / WINDOW_SIZE * SAMPLING_RATE;
-//    vec2 attenuated = Xk * attenuation(frequency, 10000);
+//    Xk *= attenuation(frequency, 10000);
 
     vec2 attenuated_left = complex_mult(Xk, left_hrtf);
     vec2 attenuated_right = complex_mult(Xk, right_hrtf);
 //    vec2 attenuated_left = left_hrtf;
 //    vec2 attenuated_right = right_hrtf;
 
-    leftOutput[idx] = attenuated_left;
-    rightOutput[idx] = attenuated_right;
+    leftOutput[sample_idx] = attenuated_left;
+    rightOutput[sample_idx] = attenuated_right;
 
-    if (idx != 0 && idx != WINDOW_SIZE / 2) {
-        leftOutput[WINDOW_SIZE - idx] = vec2(attenuated_left.x, -attenuated_left.y);
-        rightOutput[WINDOW_SIZE - idx] = vec2(attenuated_right.x, -attenuated_right.y);
+    if (sample_idx != 0 && sample_idx != WINDOW_SIZE / 2) {
+        leftOutput[WINDOW_SIZE - sample_idx] = vec2(attenuated_left.x, -attenuated_left.y);
+        rightOutput[WINDOW_SIZE - sample_idx] = vec2(attenuated_right.x, -attenuated_right.y);
     }
 }
