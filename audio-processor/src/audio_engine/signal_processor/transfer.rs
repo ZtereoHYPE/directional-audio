@@ -44,7 +44,7 @@ impl TransferModule {
     pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, frames: Vec<GpuFrame>, dst: &Buffer) {
         // copy frame to cpu buffer
         let mut stream_buffer = StreamBuffer::from_memory_map(self.cpu_buffer_maps[0]);
-        stream_buffer.insert_frames(frames.clone());
+        stream_buffer.insert_frames(frames);
 
         self.allocator
             .flush_allocation(&self.cpu_buffer_memories[0], 0, WHOLE_SIZE)
@@ -63,7 +63,7 @@ impl TransferModule {
 
         // todo: do one region per uploaded frame
         let region = BufferCopy::default()
-            .size(StreamBuffer::size() as _);
+            .size(StreamBuffer::max_size() as _);
 
         self.device.cmd_copy_buffer(
             *command_buffer,

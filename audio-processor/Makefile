@@ -15,7 +15,7 @@ shaders: $(COMPILED_COMPUTE_SHADERS)
 
 $(SHADER_BUILD_DIR)/%.comp.spv: $(SHADER_DIR)/%.comp $(SUBDIR_SHADER_FILES)
 	@mkdir -p $(SHADER_BUILD_DIR)
-	$(SHADER_COMPILER) $< -o $@
+	$(SHADER_COMPILER) --target-env=vulkan1.3 $< -o $@
 
 clean:
 	rm -rf $(SHADER_BUILD_DIR)

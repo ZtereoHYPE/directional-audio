@@ -83,6 +83,7 @@ impl FftModule {
                 workgroups.0, workgroups.1, 1
             );
 
+            // todo: might want to optimize this a little by using a buffer_memory_barrier instead
             let memory_barrier = MemoryBarrier::default()
                 .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches
                 .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
@@ -223,6 +224,10 @@ pub mod complex {
 
     pub fn magnitude(complex: Vec2) -> f32 {
         (complex.x * complex.x + complex.y * complex.y).sqrt()
+    }
+
+    pub fn phase(complex: Vec2) -> f32 {
+        f32::atan2(complex.y, complex.x)
     }
 }
 

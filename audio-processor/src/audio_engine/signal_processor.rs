@@ -6,13 +6,13 @@ mod hrtf;
 mod transfer;
 
 use crate::audio_engine::buffer_uploader::BufferUploader;
-use crate::audio_engine::gpu_structures::{FftConstants, FftUbo, GpuFrame, GpuWindow, StreamBuffer, VirtualSources, GPU_WINDOW_SIZE};
+use crate::audio_engine::gpu_structures::{AudioInstances, FftConstants, FftUbo, GpuFrame, GpuWindow, StreamBuffer, GPU_WINDOW_SIZE};
 use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
 use crate::audio_engine::signal_processor::transfer::TransferModule;
 use crate::audio_engine::{read_file_words, GpuData};
 use crate::scene::hrtf_filter::HrtfFilter;
-use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, BufferViewCreateInfo, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::{Device, Instance};
 use crevice::std430::{AsStd430, Vec2};
 use std::f32::consts::PI;
@@ -146,7 +146,7 @@ impl SignalProcessor {
 
         let (cpu_buffers, cpu_buffer_memories, cpu_buffer_maps) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(StreamBuffer::size() as u64)
+                .size(StreamBuffer::max_size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST)
                 .queue_family_indices(from_ref(&transfer_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -231,7 +231,7 @@ impl SignalProcessor {
 
         let ((fft_gpu_buf_1, fft_gpu_mem_1), (fft_gpu_buf_2, fft_gpu_mem_2)) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(StreamBuffer::size() as u64)
+                .size(StreamBuffer::max_size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -422,10 +422,10 @@ impl SignalProcessor {
             (pipelines, layout)
         };
 
-        let (mut hrtf_ubo, hrtf_ubo_memory) = {
+        let (mut instance_buffer, instance_buffer_memory) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(VirtualSources::size() as u64)
-                .usage(BufferUsageFlags::STORAGE_TEXEL_BUFFER | BufferUsageFlags::TRANSFER_DST)
+                .size(AudioInstances::max_size() as u64)
+                .usage(BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
 
@@ -442,12 +442,13 @@ impl SignalProcessor {
         };
 
         // Populate the UBO
-        let mut data = VirtualSources::new();
-        data.push_source(500.0, 500.0, 1.0, 0);
+        let mut data = AudioInstances::new();
+        data.push_instance(3.0, 2.0, 1.0, 0);
+        data.push_instance(3.0, 2.0, 1.0, 1);
 
-        buffer_uploader.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut hrtf_ubo);
+        buffer_uploader.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut instance_buffer);
 
-        let (hrtf_output, hrtf_output_memory) = {
+        let (mut hrtf_output, hrtf_output_memory) = {
             let buffer_info = BufferCreateInfo::default()
                 .size(size_of::<GpuWindow>() as u64 * 2)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
@@ -463,6 +464,8 @@ impl SignalProcessor {
                 .create_buffer(&buffer_info, &allocation_info)
                 .expect("Failed to create buffer")
         };
+
+        buffer_uploader.clear_buffer(&device, compute_queue.0.clone(), &mut hrtf_output, size_of::<GpuWindow>() as u64 * 2);
 
         let ((mut hrtf_left, hrtf_left_mem, hrtf_left_view), (mut hrtf_right, hrtf_right_mem, hrtf_right_view)) = {
             let image_info = ImageCreateInfo::default()
@@ -561,7 +564,7 @@ impl SignalProcessor {
                 DescriptorSetLayoutBinding::default()
                     .binding(0)
                     .descriptor_count(1)
-                    .descriptor_type(DescriptorType::STORAGE_TEXEL_BUFFER) // todo: investigate UNIFORM_TEXEL_BUFFER
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .stage_flags(ShaderStageFlags::COMPUTE),
 
                 DescriptorSetLayoutBinding::default()
@@ -611,16 +614,11 @@ impl SignalProcessor {
                 .allocate_descriptor_sets(&set_info)
                 .expect("Failed to allocate descriptor sets")[0];
 
-            let buffer_view_info = BufferViewCreateInfo::default()
-                .buffer(hrtf_ubo)
-                .format(Format::R32G32B32A32_SFLOAT)
-                .range(WHOLE_SIZE);
-
-            let buffer_view = device
-                .create_buffer_view(&buffer_view_info, None)
-                .expect("Failed to create buffer view");
-
             let buffer_infos = [
+                DescriptorBufferInfo::default()
+                    .buffer(instance_buffer) // TODO: this is hardcoded for window size 2048!
+                    .range(WHOLE_SIZE),
+
                 DescriptorBufferInfo::default()
                     .buffer(fft_gpu_buf_1) // TODO: this is hardcoded for window size 2048!
                     .range(WHOLE_SIZE),
@@ -654,29 +652,29 @@ impl SignalProcessor {
                     .dst_set(set)
                     .descriptor_count(1)
                     .dst_binding(0)
-                    .descriptor_type(DescriptorType::STORAGE_TEXEL_BUFFER)
-                    .texel_buffer_view(from_ref(&buffer_view)),
-
-                WriteDescriptorSet::default()
-                    .dst_set(set)
-                    .descriptor_count(1)
-                    .dst_binding(1)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .buffer_info(from_ref(&buffer_infos[0])),
 
                 WriteDescriptorSet::default()
                     .dst_set(set)
                     .descriptor_count(1)
-                    .dst_binding(2)
+                    .dst_binding(1)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .buffer_info(from_ref(&buffer_infos[1])),
 
                 WriteDescriptorSet::default()
                     .dst_set(set)
                     .descriptor_count(1)
-                    .dst_binding(3)
+                    .dst_binding(2)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .buffer_info(from_ref(&buffer_infos[2])),
+
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .descriptor_count(1)
+                    .dst_binding(3)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .buffer_info(from_ref(&buffer_infos[3])),
 
                 WriteDescriptorSet::default()
                     .dst_set(set)
@@ -782,8 +780,8 @@ impl SignalProcessor {
             fft_ubos,
             fft_ubo_memories,
 
-            hrtf_ubo,
-            hrtf_ubo_memory,
+            hrtf_ubo: instance_buffer,
+            hrtf_ubo_memory: instance_buffer_memory,
             hrtf_output,
             hrtf_output_memory,
             hrtfs: [hrtf_left, hrtf_right],
@@ -803,6 +801,8 @@ impl SignalProcessor {
 
         // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false);
+
+        self.device.cmd_fill_buffer(self.compute_command_buffer, self.hrtf_output, 0, size_of::<GpuWindow>() as u64 * 2, 0);
 
         // perform HRTF dsp
         self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);

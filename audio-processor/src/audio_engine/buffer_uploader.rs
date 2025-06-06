@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use crate::audio_engine::GpuData;
-use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
+use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, DeviceSize, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
 use std::u64::MAX;
@@ -55,7 +55,7 @@ impl BufferUploader {
                 .command_buffer_count(1)
                 .level(CommandBufferLevel::PRIMARY);
 
-            unsafe{
+            unsafe {
                 device
                     .allocate_command_buffers(&command_buffer_info)
                     .expect("Failed to allocate command buffers")[0]
@@ -109,33 +109,25 @@ impl BufferUploader {
     pub(crate) unsafe fn upload_buffer_onetime<T: GpuData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Buffer) {
         let size = src.size() as u64;
 
-        self.prepare_onetime(device, src);
+        // stage data and begin command
+        self.stage_data(device, src);
+        self.begin_command(device);
 
         // perform copy
         let region = BufferCopy::default().size(size);
         device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, *dst, from_ref(&region));
 
         // submit
-        device.end_command_buffer(self.command_buffer);
-
-        let submit_info = SubmitInfo::default()
-            .command_buffers(from_ref(&self.command_buffer));
-
-        device
-            .queue_submit(queue, &[submit_info], self.fence)
-            .expect("Failed to submit command buffer");
-
-        // wait for fence
-        device
-            .wait_for_fences(from_ref(&self.fence), true, MAX)
-            .expect("Failed to wait for fences");
+        self.end_command(device, queue);
     }
 
     // warning: this also transitions the image layout
     pub(crate) unsafe fn upload_image_onetime<T: GpuData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Image, dst_layout: ImageLayout, dst_extent: Extent3D) {
         let size = src.size() as u64;
 
-        self.prepare_onetime(device, src);
+        // stage data and begin command
+        self.stage_data(device, src);
+        self.begin_command(device);
 
         // transition the image's layout to the required one
         let subresource = ImageSubresourceRange::default()
@@ -187,6 +179,36 @@ impl BufferUploader {
         );
 
         // submit
+        self.end_command(device, queue);
+    }
+
+    pub(crate) unsafe fn clear_buffer(&mut self, device: &Device, queue: Queue, buffer: &mut Buffer, size: DeviceSize) {
+        self.begin_command(device);
+
+        device.cmd_fill_buffer(self.command_buffer, *buffer, 0, size, 0);
+
+        self.end_command(device, queue);
+    }
+
+    unsafe fn begin_command(&mut self, device: &Device) {
+        device
+            .reset_fences(from_ref(&self.fence))
+            .expect("Failed to reset fences");
+
+        // reset and begin command buffer
+        device
+            .reset_command_buffer(self.command_buffer, CommandBufferResetFlags::RELEASE_RESOURCES) // todo: release resources?
+            .expect("Failed to reset command buffer");
+
+        let begin_info = CommandBufferBeginInfo::default()
+            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        device
+            .begin_command_buffer(self.command_buffer, &begin_info)
+            .expect("Failed to begin command buffer recording");
+    }
+
+    unsafe fn end_command(&mut self, device: &Device, queue: Queue) {
         device
             .end_command_buffer(self.command_buffer)
             .expect("Failed to end command buffer");
@@ -204,35 +226,17 @@ impl BufferUploader {
             .expect("Failed to wait for fence");
     }
 
-    unsafe fn prepare_onetime<T: GpuData>(&self, device: &Device, src: T) {
+    unsafe fn stage_data<T: GpuData>(&self, device: &Device, src: T) {
         let size = src.size() as u64;
 
         if size > STAGING_BUFFER_SIZE {
             todo!("Uploading data bigger than the staging buffer isn't supported yet");
         }
 
-        device
-            .reset_fences(from_ref(&self.fence))
-            .expect("Failed to reset fences");
-
         // copy data to the staging buffer
         src.serialize(self.staging_map);
         self.allocator
             .flush_allocation(&self.staging_memory, 0, WHOLE_SIZE)
             .expect("Failed to flush allocation");
-
-        // reset and begin command buffer
-        device
-            .reset_command_buffer(self.command_buffer, CommandBufferResetFlags::RELEASE_RESOURCES) // todo: release resources?
-            .expect("Failed to reset command buffer");
-
-        let begin_info = CommandBufferBeginInfo::default()
-            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-        device
-            .begin_command_buffer(self.command_buffer, &begin_info)
-            .expect("Failed to begin command buffer recording");
     }
-    
-    // todo: buffer clearer (vkcmdclearbuffer)
 }

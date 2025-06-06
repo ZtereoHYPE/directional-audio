@@ -50,7 +50,11 @@ impl HrtfModule {
             self.pipeline
         );
 
-        let workgroups = (GPU_WINDOW_SIZE as u32 / 64 / 2 + 1, FRAME_AMT as u32);
+        if (FRAME_AMT > 64) {
+            panic!("Currently maximum 64 sources are supported!");
+        }
+
+        let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, 1);
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

@@ -7,7 +7,7 @@ use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::hrtf_filter::{HrtfFilter, HrtfOptions};
 use crate::scene::{Frame, FRAME_SIZE};
 use ash::ext::debug_utils;
-use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, InstanceCreateInfo};
+use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
 use crevice::std430::Vec2;
 use std::array::from_ref;
@@ -93,12 +93,12 @@ impl AudioEngine {
 
         // todo: better logic for selecting device and queue(s)
         // igpu detection could happen here to better adapt things
-        let (gpu, queue_family_index) = {
+        let (gpu, queue_family_index, device) = {
             let gpus = instance
                 .enumerate_physical_devices()
                 .expect("Failed to enumerate physical devices");
 
-            gpus
+            let (gpu, idx) = gpus
                 .iter()
                 .flat_map(|gpu| {
                     instance
@@ -110,30 +110,41 @@ impl AudioEngine {
                         .collect::<Vec<_>>()
                 })
                 .next()
-                .expect("Couldn't find suitable device.")
-        };
+                .expect("Couldn't find suitable device.");
 
-        let device = {
+            let device_extensions: [*const c_char; 1] = [c"VK_EXT_shader_atomic_float"]
+                .map(|raw_name| raw_name.as_ptr());
+
+            let mut atomic_floats_feature = PhysicalDeviceShaderAtomicFloatFeaturesEXT::default()
+                .shader_buffer_float32_atomics(true);
+
+            let mut gpu_features = PhysicalDeviceFeatures2::default().push_next(&mut atomic_floats_feature);
+            instance.get_physical_device_features2(gpu, &mut gpu_features);
+
             let queue_info = DeviceQueueCreateInfo::default()
-                        .queue_family_index(queue_family_index)
-                        .queue_priorities(&[1.0]);
+                .queue_family_index(idx)
+                .queue_priorities(&[1.0]);
 
             let device_create_info = DeviceCreateInfo::default()
-                .queue_create_infos(from_ref(&queue_info));
-        
-            instance
+                .queue_create_infos(from_ref(&queue_info))
+                .enabled_extension_names(&device_extensions[..])
+                .push_next(&mut gpu_features);
+
+            let device = instance
                 .create_device(gpu, &device_create_info, None)
-                .expect("Failed to create device!")
+                .expect("Failed to create device!");
+
+            (gpu, idx, device)
         };
 
         // todo: better detection and selection of the various queues
         let compute_queue = device.get_device_queue(queue_family_index, 0);
 
         let filter_options = HrtfOptions {
-            azimuth_samples: 180, // one every 2 deg
-            elevation_samples: 90, // one every 2 deg
-            elevation_max: PI, // full sphere was captured
-            elevation_min: 0.0, // "
+            azimuth_samples: 90, // one every 2 deg
+            elevation_samples: 45, // one every 2 deg
+            elevation_max: 0.0, // full sphere was captured
+            elevation_min: PI, // "
             sampling_rate: 44100.0
         };
 

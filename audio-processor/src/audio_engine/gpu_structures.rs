@@ -1,6 +1,6 @@
 use crate::audio_engine::GpuData;
 use crate::scene::FRAME_SIZE;
-use crevice::std430::{AsStd430, Vec2, Vec4};
+use crevice::std430::{AsStd430, Vec2, Vec3};
 use std::mem::ManuallyDrop;
 
 #[derive(AsStd430)]
@@ -22,7 +22,7 @@ pub(crate) struct FftConstants {
 /// The stream buffer contains the stream data that gets uploaded to the GPU every frame.
 /// This includes a sliding window for each frame stream for partitioned convolution.
 
-pub(crate) const MAX_STREAMS: usize = 1; // todo: experiment with more!
+pub(crate) const MAX_STREAMS: usize = 2;
 pub(crate) const SLIDING_WINDOW_FRAME_AMT: usize = 2;
 pub(crate) const GPU_WINDOW_SIZE: usize = FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT;
 
@@ -48,7 +48,7 @@ impl GpuData for StreamBuffer {
     }
 
     fn size(&self) -> usize {
-        Self::size()
+        Self::max_size()
     }
 }
 
@@ -82,7 +82,7 @@ impl StreamBuffer {
         )
     }
 
-    pub(crate) fn size() -> usize {
+    pub(crate) fn max_size() -> usize {
         size_of::<Self>()
     }
 }
@@ -92,43 +92,52 @@ impl StreamBuffer {
 /// The stream is represented as an index within the Stream Buffer.
 pub(crate) const MAX_VIRTUAL_SOURCES: usize = 512;
 
-pub(crate) struct VirtualSources {
-    sources: Vec<Vec4>,
+#[derive(AsStd430)]
+#[repr(align(16))]
+pub(crate) struct AudioInstance {
+    direction: Vec3,
+    delay: f32,
+    index: u32,
 }
 
-impl GpuData for VirtualSources {
+pub(crate) struct AudioInstances {
+    instances: Vec<AudioInstance>,
+}
+
+impl GpuData for AudioInstances {
     unsafe fn serialize(&self, dst: *mut u8) {
         std::ptr::copy_nonoverlapping(
-            (&self.sources[..] as *const [Vec4]).cast(),
+            (&self.instances[..] as *const [AudioInstance]).cast(),
             dst,
-            size_of::<Vec4>() * self.sources.len()
+            size_of::<AudioInstance>() * self.instances.len()
         );
     }
 
     unsafe fn deserialize(_: *const u8) -> Box<Self> {
-        panic!("UBOs should only be uploaded!")
+        panic!("Audio instances should only be uploaded!")
     }
 
     fn size(&self) -> usize {
-        self.sources.len() * size_of::<Vec4>()
+        self.instances.len() * 32
     }
 }
 
-impl VirtualSources {
+impl AudioInstances {
     pub(crate) fn new() -> Self {
         Self {
-            sources: Vec::new()
+            instances: Vec::new()
         }
     }
 
-    pub(crate) fn push_source(&mut self, x: f32, y: f32, z: f32, audio_stream_idx: u32) {
-        self.sources.push(Vec4 {
-            x, y, z,
-            w: f32::from_bits(audio_stream_idx)
+    pub(crate) fn push_instance(&mut self, x: f32, y: f32, z: f32, audio_stream_idx: u32) {
+        self.instances.push(AudioInstance {
+            direction: Vec3 {x, y, z},
+            delay: 0.0,
+            index: audio_stream_idx,
         })
     }
 
-    pub(crate) fn size() -> usize {
-        size_of::<Vec4>() * MAX_VIRTUAL_SOURCES
+    pub(crate) fn max_size() -> usize {
+        32 * MAX_VIRTUAL_SOURCES
     }
 }

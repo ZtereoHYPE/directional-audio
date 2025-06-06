@@ -85,7 +85,7 @@ mod tests {
             .set_label_area_size(LabelAreaPosition::Bottom, 40)
             .build_cartesian_2d(
                 0..GPU_WINDOW_SIZE,
-                0..2,
+                0.0..2.0,
             ).unwrap();
 
         chart
@@ -99,22 +99,36 @@ mod tests {
         // ).unwrap();
 
         chart.draw_series(LineSeries::new(
-            data.iter().map(|&f| (f) as i32).enumerate(),
+            data.iter().map(|&f| (f) as f64).enumerate(),
             &BLUE,
         )).unwrap();
 
         chart.draw_series(LineSeries::new(
-            data2.iter().map(|&f| (f) as i32).enumerate(),
+            data2.iter().map(|&f| (f) as f64).enumerate(),
             &RED,
         )).unwrap();
 
         root.present().expect("Unable to write result to file, pr");
     }
 
-    #[ignore]
+    // #[ignore]
     #[test]
     fn audio_test() {
-        let samples = AudioProvider::from_file("./datasources/sample-15s.wav");
+        let mut samples = AudioProvider::from_file("./datasources/sample-15s.wav");
+        let mut samples_2 = AudioProvider::from_file("./datasources/sample-12s.wav");
+
+        // pad the smaller one to the larger's capacity with empty frames
+        let diff = samples.len() as i32 - samples_2.len() as i32;
+        let len = usize::max(samples.len(), samples_2.len());
+        if (diff < 0) {
+            for _ in 0..diff {
+                samples.push(AudioProvider::empty())
+            }
+        } else {
+            for _ in 0..diff {
+                samples_2.push(AudioProvider::empty())
+            }
+        }
 
         let mut left: Vec<Frame> = vec![];
         let mut right: Vec<Frame> = vec![];
@@ -123,8 +137,10 @@ mod tests {
             let mut engine = AudioEngine::new();
 
             println!("started rendering");
-            for sample in samples {
-                let (left_frame, right_frame) = engine.process_frames(vec![sample]);
+            for idx in 0..len {
+                let sample_1 = samples[idx];
+                let sample_2 = samples_2[idx];
+                let (left_frame, right_frame) = engine.process_frames(vec![sample_1, sample_2]);
                 
                 left.push(left_frame);
                 right.push(right_frame);
@@ -140,8 +156,8 @@ mod tests {
 
             for (&l, r) in left.iter().zip(right) {
                 for (&sl, sr) in l.iter().zip(r) {
-                    writer.write_sample(sl / 100000.0).unwrap();
-                    writer.write_sample(sr / 100000.0).unwrap();
+                    writer.write_sample(sl).unwrap();
+                    writer.write_sample(sr).unwrap();
                 }
             }
 
@@ -149,7 +165,7 @@ mod tests {
         }
     }
 
-    // #[ignore]
+    #[ignore]
     #[test]
     fn freq_test() {
         let frame = AudioProvider::from_file("./datasources/sample-15s.wav")[15];
@@ -170,18 +186,21 @@ mod tests {
 
             println!("started rendering");
             engine.process_frames_frequency(vec![frame]);
-            let (left_window, _) = engine.process_frames_frequency(vec![frame]);
+            let (left_window, right_window) = engine.process_frames_frequency(vec![frame]);
             println!("finished rendering");
 
-            let left_amplitude: Vec<_> = left_window.iter().map(|s| complex::magnitude(*s)).collect();
-            // let right_amplitude = left_window.iter().map(|s| complex::magnitude(*s)).collect();
+            let left_gpu = left_window.iter().map(|s| complex::magnitude(*s)).collect();
+            let right_gpu = right_window.iter().map(|s| complex::magnitude(*s)).collect();
 
-            let left_amplitude_2: Vec<_> = filter.for_angle(2.0 * PI * 0.39857, PI * 0.928747).0.iter().map(|s| complex::magnitude(*s)).collect();
+            let reference = filter.for_angle(2.0 * PI * 0.0, PI * 0.5);
+            let left_ref = reference.0.iter().map(|s| complex::magnitude(*s)).collect();
+            let right_ref = reference.1.iter().map(|s| complex::magnitude(*s)).collect();
 
-            let mse = left_amplitude.iter().zip(left_amplitude_2.clone()).fold(0.0, |acc, (&l, r)| acc + (l - r) * (l - r));
-            println!("Mean square error: {}", mse / GPU_WINDOW_SIZE as f32);
+            // let mse = left_amplitude.iter().zip(left_amplitude_2.clone()).fold(0.0, |acc, (&l, r)| acc + (l - r) * (l - r));
+            // println!("Mean square error: {}", mse / GPU_WINDOW_SIZE as f32);
 
-            plot_histogram(&left_amplitude, &left_amplitude_2,"./frequency.png");
+            plot_histogram(&left_ref, &left_gpu, "./left.png");
+            plot_histogram(&right_ref, &right_gpu, "./right.png");
         }
     }
 
