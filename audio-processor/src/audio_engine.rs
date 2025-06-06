@@ -30,7 +30,6 @@ struct GpuBuffer {
 
 pub(crate) trait GpuData {
     unsafe fn serialize(&self, dst: *mut u8);
-    unsafe fn deserialize(src: *const u8) -> Box<Self>;
     fn size(&self) -> usize;
 }
 
@@ -114,10 +113,10 @@ impl AudioEngine {
 
             let device_extensions: [*const c_char; 1] = [c"VK_EXT_shader_atomic_float"]
                 .map(|raw_name| raw_name.as_ptr());
-
+            
             let mut atomic_floats_feature = PhysicalDeviceShaderAtomicFloatFeaturesEXT::default()
                 .shader_buffer_float32_atomics(true);
-
+            
             let mut gpu_features = PhysicalDeviceFeatures2::default().push_next(&mut atomic_floats_feature);
             instance.get_physical_device_features2(gpu, &mut gpu_features);
 

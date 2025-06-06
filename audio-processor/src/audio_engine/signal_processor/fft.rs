@@ -1,6 +1,5 @@
 use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
 use crate::audio_engine::signal_processor::fft::complex::{root_of_unity, scalar_mult};
-use crate::scene::FRAME_AMT;
 use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue};
 use ash::Device;
 use crevice::std430::Vec2;
@@ -59,9 +58,10 @@ impl FftModule {
         }
     }
 
-    pub unsafe fn gpu_fourier_transform(&mut self, command_buffer: &mut CommandBuffer, initial_buffer: u32, inverse: bool) -> u32 {
+    // todo: this can be HEAVILY optimized to run on the same dispatch with in-shader barriers!
+    pub unsafe fn gpu_fourier_transform(&mut self, command_buffer: &mut CommandBuffer, initial_buffer: u32, inverse: bool, instance_amt: usize) -> u32 {
         for (idx, stage) in self.stages.iter().enumerate() {
-            let workgroups = (GPU_WINDOW_SIZE as u32 / (stage.radix * 32), FRAME_AMT as u32);
+            let workgroups = (GPU_WINDOW_SIZE as u32 / (stage.radix * 32), instance_amt as u32);
 
             // todo: Push constants to select the right buffer! -> change the shader as well
             self.device.cmd_bind_descriptor_sets(
@@ -228,23 +228,5 @@ pub mod complex {
 
     pub fn phase(complex: Vec2) -> f32 {
         f32::atan2(complex.y, complex.x)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    const EPSILON: f32 = 0.0005;
-
-    #[ignore]
-    #[test]
-    fn cpu_fft_test() {
-        // let vector = Vec::from(FftModule::frame_to_fft(&AudioProvider::random_frame(32)));
-        // let fft = FftModule::local_fourier_transform(vector.clone(), false);
-        // let ifft = FftModule::local_fourier_transform(fft.clone(), true);
-        //
-        // for (&s_before, s_after) in vector.iter().zip(ifft) {
-        //     let diff = (s_after.x - s_before.x).abs();
-        //     assert!(diff < EPSILON);
-        // }
     }
 }

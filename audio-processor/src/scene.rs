@@ -12,7 +12,6 @@ mod listener;
 // todo: move to source
 
 pub(crate) const FRAME_SIZE: usize = 512;
-pub(crate) const FRAME_AMT: usize = 2;
 
 pub type Frame = [f32; FRAME_SIZE];
 pub struct AudioProvider {}

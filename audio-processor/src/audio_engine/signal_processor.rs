@@ -3,16 +3,18 @@
 
 pub(crate) mod fft;
 mod hrtf;
-mod transfer;
+pub mod transfer;
+mod delay;
 
 use crate::audio_engine::buffer_uploader::BufferUploader;
-use crate::audio_engine::gpu_structures::{AudioInstances, FftConstants, FftUbo, GpuFrame, GpuWindow, StreamBuffer, GPU_WINDOW_SIZE};
+use crate::audio_engine::gpu_structures::{AudioInstances, DelayBuffer, DownloadBuffer, FftBuffer, FftConstants, FftUbo, GpuFrame, GpuWindow, UploadBuffer, GPU_WINDOW_SIZE, MAX_UPLOADED_FRAMES};
+use crate::audio_engine::signal_processor::delay::DelayModule;
 use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
 use crate::audio_engine::signal_processor::transfer::TransferModule;
 use crate::audio_engine::{read_file_words, GpuData};
 use crate::scene::hrtf_filter::HrtfFilter;
-use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PushConstantRange, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::{Device, Instance};
 use crevice::std430::{AsStd430, Vec2};
 use std::f32::consts::PI;
@@ -31,6 +33,10 @@ pub struct SignalProcessor {
     transfer_command_buffer: CommandBuffer,
     fence: Fence,
 
+    // for Delay
+    delay_buffer: Buffer,
+    delay_buffer_memory: Allocation,
+
     // For FFT
     fft_gpu_buffers: [Buffer; 2],
     fft_gpu_buffers_memory: [Allocation; 2],
@@ -48,9 +54,12 @@ pub struct SignalProcessor {
     hrtf_views: [ImageView; 2],
     hrtf_sampler: Sampler,
 
+    delay_module: DelayModule,
     fft_module: FftModule,
     hrtf_module: HrtfModule,
     transfer_module: TransferModule,
+
+    counter: usize,
 }
 
 // todo: better inspect mutability
@@ -124,15 +133,11 @@ impl SignalProcessor {
 
                 DescriptorPoolSize::default()
                     .ty(DescriptorType::STORAGE_BUFFER)
-                    .descriptor_count(8),
+                    .descriptor_count(11),
 
                 DescriptorPoolSize::default()
                     .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .descriptor_count(2),
-
-                DescriptorPoolSize::default()
-                    .ty(DescriptorType::STORAGE_TEXEL_BUFFER)
-                    .descriptor_count(1),
             ];
 
             let pool_info = DescriptorPoolCreateInfo::default()
@@ -146,7 +151,7 @@ impl SignalProcessor {
 
         let (cpu_buffers, cpu_buffer_memories, cpu_buffer_maps) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(StreamBuffer::max_size() as u64)
+                .size(UploadBuffer::max_size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST)
                 .queue_family_indices(from_ref(&transfer_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -166,7 +171,7 @@ impl SignalProcessor {
                 .map_memory(&mut upload_memory)
                 .expect("Failed to map memory");
 
-            let buffer_info = buffer_info.size((size_of::<GpuWindow>() * 2) as u64);
+            let buffer_info = buffer_info.size(DownloadBuffer::max_size() as u64);
             // todo: different queues
 
             let (download_buffer, mut download_memory) = buffer_allocator
@@ -231,7 +236,7 @@ impl SignalProcessor {
 
         let ((fft_gpu_buf_1, fft_gpu_mem_1), (fft_gpu_buf_2, fft_gpu_mem_2)) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(StreamBuffer::max_size() as u64)
+                .size(FftBuffer::max_size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -450,7 +455,7 @@ impl SignalProcessor {
 
         let (mut hrtf_output, hrtf_output_memory) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(size_of::<GpuWindow>() as u64 * 2)
+                .size(DownloadBuffer::max_size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -616,7 +621,7 @@ impl SignalProcessor {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(instance_buffer) // TODO: this is hardcoded for window size 2048!
+                    .buffer(instance_buffer)
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
@@ -728,6 +733,142 @@ impl SignalProcessor {
             (pipeline, layout)
         };
 
+        let (mut delay_buffer, delay_buffer_memory) = {
+            let buffer_info = BufferCreateInfo::default()
+                .size(DelayBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&compute_queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferDevice,
+                ..Default::default()
+            };
+
+            buffer_allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer")
+        };
+
+        buffer_uploader.clear_buffer(&device, compute_queue.0.clone(), &mut delay_buffer, DelayBuffer::max_size() as DeviceSize);
+
+        let (delay_descriptor_set, delay_descriptor_layout) = {
+            let bindings = [
+                DescriptorSetLayoutBinding::default()
+                    .binding(0)
+                    .descriptor_count(1)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE),
+
+                DescriptorSetLayoutBinding::default()
+                    .binding(1)
+                    .descriptor_count(1)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE),
+
+                DescriptorSetLayoutBinding::default()
+                    .binding(2)
+                    .descriptor_count(1)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE),
+            ];
+
+            let set_layout_info = DescriptorSetLayoutCreateInfo::default()
+                .bindings(&bindings);
+
+            let set_layout = device
+                .create_descriptor_set_layout(&set_layout_info, None)
+                .expect("Failed to create descriptor set layout");
+
+            // Allocate one set per stage
+            let set_info = DescriptorSetAllocateInfo::default()
+                .descriptor_pool(descriptor_pool)
+                .set_layouts(from_ref(&set_layout));
+
+            let set = device
+                .allocate_descriptor_sets(&set_info)
+                .expect("Failed to allocate descriptor sets")[0];
+
+            let buffer_infos = [
+                DescriptorBufferInfo::default()
+                    .buffer(instance_buffer)
+                    .range(WHOLE_SIZE),
+
+                DescriptorBufferInfo::default()
+                    .buffer(delay_buffer)
+                    .range(WHOLE_SIZE),
+
+                DescriptorBufferInfo::default()
+                    .buffer(fft_gpu_buf_1)
+                    .range(WHOLE_SIZE),
+            ];
+
+            // Write the descriptor sets
+            let writes = [
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .descriptor_count(1)
+                    .dst_binding(0)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .buffer_info(from_ref(&buffer_infos[0])),
+
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .descriptor_count(1)
+                    .dst_binding(1)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .buffer_info(from_ref(&buffer_infos[1])),
+
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .descriptor_count(1)
+                    .dst_binding(2)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .buffer_info(from_ref(&buffer_infos[2])),
+            ];
+
+            device.update_descriptor_sets(&writes, &[]);
+            (set, set_layout)
+        };
+
+        let (delay_pipeline, delay_pipeline_layout) = {
+            let push_constant_range = PushConstantRange::default()
+                .stage_flags(ShaderStageFlags::COMPUTE)
+                .size(4);
+
+            let layout_info = PipelineLayoutCreateInfo::default()
+                .set_layouts(from_ref(&delay_descriptor_layout))
+                .push_constant_ranges(from_ref(&push_constant_range));
+
+            let layout = device
+                .create_pipeline_layout(&layout_info, None)
+                .expect("Failed to create pipeline layout");
+
+            let code_words = read_file_words("target/shaders/delay.comp.spv");
+
+            let shader_module_info = ShaderModuleCreateInfo::default()
+                .code(&code_words[..]);
+
+            let shader_module = device
+                .create_shader_module(&shader_module_info, None)
+                .expect("Failed to create shader module");
+
+            let stage_info = PipelineShaderStageCreateInfo::default()
+                .stage(ShaderStageFlags::COMPUTE)
+                .module(shader_module)
+                .name(c"main");
+
+            let pipeline_info = ComputePipelineCreateInfo::default()
+                .layout(layout)
+                .stage(stage_info);
+
+            let pipeline = device
+                .create_compute_pipelines(PipelineCache::null(), from_ref(&pipeline_info), None)
+                .expect("Failed to create pipeline")[0];
+
+            (pipeline, layout)
+        };
+
         let transfer_fence = device
             .create_fence(&FenceCreateInfo::default(), None)
             .expect("failed to create fence");
@@ -735,6 +876,15 @@ impl SignalProcessor {
         let fence = device
             .create_fence(&FenceCreateInfo::default(), None)
             .expect("failed to create fence");
+
+        let delay_module = DelayModule::new(
+            device.clone(),
+            delay_pipeline,
+            delay_pipeline_layout,
+            delay_descriptor_set,
+            delay_descriptor_layout,
+            compute_queue.0.clone(),
+        );
 
         let fft_module = FftModule::new(
             device.clone(),
@@ -775,6 +925,9 @@ impl SignalProcessor {
             transfer_command_buffer,
             fence,
 
+            delay_buffer,
+            delay_buffer_memory,
+
             fft_gpu_buffers: [fft_gpu_buf_1, fft_gpu_buf_2],
             fft_gpu_buffers_memory: [fft_gpu_mem_1, fft_gpu_mem_2],
             fft_ubos,
@@ -789,30 +942,38 @@ impl SignalProcessor {
             hrtf_views: [hrtf_left_view, hrtf_right_view],
             hrtf_sampler,
 
+            delay_module,
             fft_module,
             hrtf_module,
             transfer_module,
+
+            counter: 0
         }
     }
 
     pub unsafe fn process_frames(&mut self, frames: Vec<GpuFrame>) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
-        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.fft_gpu_buffers[0]);
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.delay_buffer, self.counter);
+
+        // move the delayed windows to the fft buffer
+        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, MAX_UPLOADED_FRAMES);
 
         // perform fourier transform
-        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false);
+        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_UPLOADED_FRAMES);
 
-        self.device.cmd_fill_buffer(self.compute_command_buffer, self.hrtf_output, 0, size_of::<GpuWindow>() as u64 * 2, 0);
+        // wipe the output buffer
+        self.device.cmd_fill_buffer(self.compute_command_buffer, self.hrtf_output, 0, DownloadBuffer::max_size() as _, 0);
 
         // perform HRTF dsp
         self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);
 
         // transfer data back
         let (left_window, right_window) = self.transfer_module.download_windows(&mut self.compute_command_buffer, &self.hrtf_output);
+        self.counter += 1;
 
         let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
         let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
-        let (start, end) = StreamBuffer::last_frame_range();
+        let (start, end) = DownloadBuffer::last_frame_range();
 
         (
             GpuFrame::try_from(&left[start..end]).unwrap(),
@@ -821,17 +982,21 @@ impl SignalProcessor {
     }
 
     pub unsafe fn process_frames_frequency(&mut self, frames: Vec<GpuFrame>) -> (Vec<Vec2>, Vec<Vec2>) {
-        // transfer data to right buffer
-        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.fft_gpu_buffers[0]);
+        // transfer data to delay buffer
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.fft_gpu_buffers[0], self.counter);
+
+        // move the delayed windows to the fft buffer
+        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, MAX_UPLOADED_FRAMES);
 
         // perform fourier transform
-        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false);
+        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_UPLOADED_FRAMES);
 
         // perform HRTF dsp
         self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);
 
         // transfer data back
         let (left, right) = self.transfer_module.download_windows(&mut self.compute_command_buffer, &self.hrtf_output);
+        self.counter += 1;
 
         (window_to_vec(left), window_to_vec(right))
     }

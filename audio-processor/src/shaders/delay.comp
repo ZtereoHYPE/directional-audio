@@ -1,0 +1,66 @@
+#version 460
+
+// todo: look into sharing constant indices maybe? Such that only one constant buffer can be used
+layout(constant_id = 0) const int WINDOW_SIZE = 1024;
+layout(constant_id = 1) const int FRAME_SIZE = 512;
+layout(constant_id = 3) const int BUFFER_SIZE = 220160; // in samples (= ~5s @ 44100Hz, rounded to %WINDOW_SIZE)
+layout(constant_id = 4) const int PIPELINE_SIZE = 0; // how many frames ahead does the CPU upload data
+layout(constant_id = 5) const float SAMPLING_RATE = 44100;
+
+const float SOUND_SPEED = 340.29;
+
+// max delay in samples is: buf size - cpu pipeline (can't read where its being uploaded) - window size (the whole window needs to be valid)
+const uint MAX_DELAY = BUFFER_SIZE - (PIPELINE_SIZE * FRAME_SIZE) - WINDOW_SIZE;
+const uint INITIAL_OFFSET = BUFFER_SIZE - WINDOW_SIZE; // in order to have an empty buffer (sound start can be delayed)
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+
+struct Instance {
+    vec3 direction;
+    float delay; // in seconds
+    uint index;
+};
+
+
+layout(push_constant, std430) uniform Time {
+    uint frame_idx;
+};
+
+layout(binding = 0, std430) readonly restrict buffer AudioInstances {
+    Instance instances[];
+};
+
+layout(binding = 1, std430) readonly restrict buffer DelayBuffer {
+    vec2 samples[];
+};
+
+layout(binding = 2, std430) restrict buffer FftInput {
+    vec2 fft_input[];
+};
+
+
+uint delayed_index(float delay, uint instance_idx) {
+    // if there's no delay, we can start at: initial offset shifted ahead by how many frames have passed
+    uint zero_delay_start_idx = frame_idx * FRAME_SIZE + INITIAL_OFFSET; // no % DELAY_BUFFER_SIZE because it's handled later
+
+    uint samples_delay = uint(delay * float(FRAME_SIZE) / SAMPLING_RATE);
+    uint clamped_delay = uint(min(samples_delay, MAX_DELAY));
+
+    // the start value is: zero delay idx - delay % buffer size. Buffer size is added to avoid negatives.
+    uint start_idx = zero_delay_start_idx + BUFFER_SIZE - clamped_delay;
+
+    return (start_idx + gl_GlobalInvocationID.x) % BUFFER_SIZE + instance_idx * BUFFER_SIZE;
+}
+
+// width of dispatch MUST BE == WINDOW_SIZE
+// height of dispatch is given by instance count
+
+// todo: this shader is also responsible for "reprojection"
+void main() {
+//    if (gl_GlobalInvocationID.y == 1) return;
+    Instance instance = instances[gl_GlobalInvocationID.y];
+    uint sample_idx = delayed_index(instance.delay, instance.index);
+    uint fft_idx = gl_GlobalInvocationID.y * WINDOW_SIZE + gl_GlobalInvocationID.x;
+    fft_input[fft_idx] = samples[sample_idx];
+}

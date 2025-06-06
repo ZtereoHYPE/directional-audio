@@ -1,9 +1,10 @@
-use crate::audio_engine::gpu_structures::{GPU_WINDOW_SIZE, MAX_INSTANCES};
-use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue};
+use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
+use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue, ShaderStageFlags};
 use ash::Device;
+use crevice::std430::Std430;
 use std::array::from_ref;
 
-pub struct HrtfModule {
+pub(crate) struct DelayModule {
     device: Device,
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
@@ -12,7 +13,7 @@ pub struct HrtfModule {
     queue: Queue,
 }
 
-impl HrtfModule {
+impl DelayModule {
     pub fn new(
         device: Device,
         pipeline: Pipeline,
@@ -31,7 +32,7 @@ impl HrtfModule {
         }
     }
 
-    pub(crate) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer) {
+    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: u32, instance_amt: usize) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -47,22 +48,20 @@ impl HrtfModule {
             self.pipeline
         );
 
-        if (MAX_INSTANCES > 64) {
-            panic!("Currently maximum 64 sources are supported!");
-        }
+        let frame_counter_data = frame_counter.as_bytes();
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, frame_counter_data);
 
-        let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, 1);
-
+        let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt as u32);
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches
-            .dst_access_mask(AccessFlags::TRANSFER_READ); // invalidate any shader read caches
+            .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
 
         self.device.cmd_pipeline_barrier(
             *command_buffer,
             PipelineStageFlags::COMPUTE_SHADER, // wait for all compute dispatches so far...
-            PipelineStageFlags::TRANSFER, // ...before executing any transfers from now on
+            PipelineStageFlags::COMPUTE_SHADER, // ...before executing any transfers from now on
             DependencyFlags::empty(),
             from_ref(&memory_barrier),
             &[],

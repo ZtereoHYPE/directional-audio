@@ -1,7 +1,9 @@
-use crate::audio_engine::gpu_structures::{GpuFrame, GpuWindow, StreamBuffer};
+use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuFrame, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES};
 use crate::audio_engine::GpuData;
-use ash::vk::{AccessFlags, Buffer, BufferCopy, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, Fence, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo, WHOLE_SIZE};
+use crate::scene::FRAME_SIZE;
+use ash::vk::{AccessFlags, Buffer, BufferCopy, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo, WHOLE_SIZE};
 use ash::Device;
+use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::rc::Rc;
 use std::u64::MAX;
@@ -41,9 +43,11 @@ impl TransferModule {
     }
 
     // todo: might switch to optional to remove a lot of these expects, in other modules too.
-    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, frames: Vec<GpuFrame>, dst: &Buffer) {
+    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, frames: Vec<GpuFrame>, dst: &Buffer, frame_counter: usize) {
+        let updated_amt = frames.len();
+
         // copy frame to cpu buffer
-        let mut stream_buffer = StreamBuffer::from_memory_map(self.cpu_buffer_maps[0]);
+        let mut stream_buffer = UploadBuffer::from_memory_map(self.cpu_buffer_maps[0]);
         stream_buffer.insert_frames(frames);
 
         self.allocator
@@ -61,15 +65,23 @@ impl TransferModule {
             .begin_command_buffer(*command_buffer, &begin_info)
             .expect("Failed to begin command buffer recording");
 
-        // todo: do one region per uploaded frame
-        let region = BufferCopy::default()
-            .size(StreamBuffer::max_size() as _);
+        let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
+
+        let mut regions = vec![];
+        for idx in (0..updated_amt) {
+            regions.push(
+                BufferCopy::default()
+                    .size((FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
+                    .src_offset((idx * FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
+                    .dst_offset((idx * MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>() + delay_buffer_offset) as DeviceSize)
+            );
+        }
 
         self.device.cmd_copy_buffer(
             *command_buffer,
             self.cpu_buffers[0],
             *dst,
-            from_ref(&region)
+            &regions[..]
         );
 
         let memory_barrier = MemoryBarrier::default()
@@ -87,18 +99,18 @@ impl TransferModule {
         );
     }
 
-    pub unsafe fn download_stream_buf(&mut self, command_buffer: &mut CommandBuffer, src: &Buffer) -> Box<StreamBuffer> {
+    pub unsafe fn download_upload_buf(&mut self, command_buffer: &mut CommandBuffer, src: &Buffer) -> Box<UploadBuffer> {
         self.device
             .reset_fences(from_ref(&self.fence))
             .expect("Failed to reset fence");
 
         let region = BufferCopy::default()
-            .size((size_of::<GpuWindow>() * 2) as _);
+            .size(UploadBuffer::max_size() as _);
 
         self.device.cmd_copy_buffer(
             *command_buffer,
             *src,
-            self.cpu_buffers[1],
+            self.cpu_buffers[0],
             from_ref(&region)
         );
 
@@ -118,10 +130,10 @@ impl TransferModule {
             .expect("Failed to wait for fence!");
 
         self.allocator
-            .invalidate_allocation(&self.cpu_buffer_memories[1], 0, WHOLE_SIZE)
+            .invalidate_allocation(&self.cpu_buffer_memories[0], 0, WHOLE_SIZE)
             .expect("Failed to invalidate allocation");
 
-        copy_to_box(self.cpu_buffer_maps[1] as *const StreamBuffer)
+        copy_to_box(self.cpu_buffer_maps[0] as *const UploadBuffer)
     }
 
     // todo: this could be made a bit more efficient if only the relevant part of the frame is copied. This would involve perfoming the FFT here.
@@ -158,11 +170,9 @@ impl TransferModule {
         self.allocator
             .invalidate_allocation(&self.cpu_buffer_memories[1], 0, WHOLE_SIZE)
             .expect("Failed to invalidate allocation");
-    
-        let left = copy_to_box(self.cpu_buffer_maps[1] as *const GpuWindow);
-        let right = copy_to_box(self.cpu_buffer_maps[1].offset(size_of::<GpuWindow>() as isize) as *const GpuWindow);
-    
-        (left, right)
+
+        DownloadBuffer::from_memory_map(self.cpu_buffer_maps[1])
+            .get_windows()
     }
 }
 

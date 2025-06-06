@@ -1,3 +1,4 @@
+use crate::audio_engine::signal_processor::transfer::copy_to_box;
 use crate::audio_engine::GpuData;
 use crate::scene::FRAME_SIZE;
 use crevice::std430::{AsStd430, Vec2, Vec3};
@@ -19,32 +20,33 @@ pub(crate) struct FftConstants {
 }
 
 
-/// The stream buffer contains the stream data that gets uploaded to the GPU every frame.
-/// This includes a sliding window for each frame stream for partitioned convolution.
+pub(crate) struct FftBuffer();
 
-pub(crate) const MAX_STREAMS: usize = 2;
-pub(crate) const SLIDING_WINDOW_FRAME_AMT: usize = 2;
-pub(crate) const GPU_WINDOW_SIZE: usize = FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT;
-
-pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];  // Represents a single audio frame
-pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
-
-#[repr(C)]
-pub(crate) struct StreamBuffer {
-   pub windows: [GpuWindow; MAX_STREAMS]
+impl FftBuffer {
+    pub(crate) fn max_size() -> usize {
+        MAX_UPLOADED_FRAMES * GPU_WINDOW_SIZE * size_of::<Vec2>()
+    }
 }
 
-impl GpuData for StreamBuffer {
+
+pub(crate) const MAX_UPLOADED_FRAMES: usize = 2;
+
+/// Represents a single audio frame on the GPU
+pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
+
+/// The upload buffer contains the stream data that gets uploaded to the GPU every frame.
+#[repr(C)]
+pub(crate) struct UploadBuffer {
+   pub windows: [GpuFrame; MAX_UPLOADED_FRAMES]
+}
+
+impl GpuData for UploadBuffer {
     unsafe fn serialize(&self, dst: *mut u8) {
         std::ptr::copy_nonoverlapping(
-            (self as *const StreamBuffer).cast(),
+            (self as *const UploadBuffer).cast(),
             dst,
-            size_of::<StreamBuffer>()
+            size_of::<UploadBuffer>()
         );
-    }
-
-    unsafe fn deserialize(_: *const u8) -> Box<Self> {
-        panic!("The Stream Buffer should only be uploaded!")
     }
 
     fn size(&self) -> usize {
@@ -52,10 +54,10 @@ impl GpuData for StreamBuffer {
     }
 }
 
-impl StreamBuffer {
+impl UploadBuffer {
     pub(crate) fn new() -> Self {
         Self {
-            windows: [[[Vec2 { x: 0.0, y: 0.0}; FRAME_SIZE]; SLIDING_WINDOW_FRAME_AMT]; MAX_STREAMS]
+            windows: [[Vec2 { x: 0.0, y: 0.0 }; FRAME_SIZE]; MAX_UPLOADED_FRAMES]
         }
     }
 
@@ -69,10 +71,41 @@ impl StreamBuffer {
     
     // todo: improve by allowing to insert individual frames at an index to not have to allocate a vector
     pub(crate) fn insert_frames(&mut self, frames: Vec<GpuFrame>) {
-        for (idx, window) in self.windows.iter_mut().enumerate() {
-            window.copy_within(1..SLIDING_WINDOW_FRAME_AMT, 0); // slide the elements 1-4 to 0-3
-            window[SLIDING_WINDOW_FRAME_AMT - 1] = frames[idx];
+        for (idx, frame) in self.windows.iter_mut().enumerate() {
+            *frame = frames[idx];
         }
+    }
+
+    pub(crate) fn max_size() -> usize {
+        size_of::<Self>()
+    }
+}
+
+
+pub(crate) const SLIDING_WINDOW_FRAME_AMT: usize = 2;
+pub(crate) const GPU_WINDOW_SIZE: usize = FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT;
+
+pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
+
+/// CPU-mapped buffer responsible for downloading the two sliding windows from the GPU
+pub(crate) struct DownloadBuffer {
+    pub windows: [GpuWindow; 2]
+}
+
+impl DownloadBuffer {
+    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> {
+        if !pointer.cast::<Self>().is_aligned() {
+            panic!("The given pointer is not properly aligned!");
+        }
+
+        ManuallyDrop::new(Box::from_raw(pointer.cast()))
+    }
+
+    pub(crate) unsafe fn get_windows(&self) -> (Box<GpuWindow>, Box<GpuWindow>) {
+        let left = copy_to_box(&self.windows[0] as *const GpuWindow);
+        let right = copy_to_box(&self.windows[1] as *const GpuWindow);
+
+        (left, right)
     }
 
     pub(crate) const fn last_frame_range() -> (usize, usize) {
@@ -87,10 +120,11 @@ impl StreamBuffer {
     }
 }
 
-/// Virtual Sources represent "audio streams" and their locations.
+
+/// Instances represent "audio streams" and their locations.
 /// This allows a single stream to have an HRTF applied from multiple locations.
 /// The stream is represented as an index within the Stream Buffer.
-pub(crate) const MAX_VIRTUAL_SOURCES: usize = 512;
+pub(crate) const MAX_INSTANCES: usize = 64; // todo: currently limited by the syncrhonization issues
 
 #[derive(AsStd430)]
 #[repr(align(16))]
@@ -111,10 +145,6 @@ impl GpuData for AudioInstances {
             dst,
             size_of::<AudioInstance>() * self.instances.len()
         );
-    }
-
-    unsafe fn deserialize(_: *const u8) -> Box<Self> {
-        panic!("Audio instances should only be uploaded!")
     }
 
     fn size(&self) -> usize {
@@ -138,6 +168,18 @@ impl AudioInstances {
     }
 
     pub(crate) fn max_size() -> usize {
-        32 * MAX_VIRTUAL_SOURCES
+        32 * MAX_INSTANCES
+    }
+}
+
+
+/// Delay buffer responsible for holding the delayed audio. This only gets uploaded
+pub(crate) const MAX_DELAY_FRAMES: usize = 430;  // = ~5s @ 44100Hz, rounded to %WINDOW_SIZE
+
+pub(crate) struct DelayBuffer();
+
+impl DelayBuffer {
+    pub(crate) fn max_size() -> usize {
+        MAX_UPLOADED_FRAMES * FRAME_SIZE * MAX_DELAY_FRAMES * size_of::<Vec2>()
     }
 }

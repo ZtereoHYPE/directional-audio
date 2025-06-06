@@ -121,10 +121,6 @@ impl GpuData for HrtfFilterChannel {
         }
     }
 
-    unsafe fn deserialize(_: *const u8) -> Box<Self> {
-        panic!("HRTF filters should not be deserialized from the gpu!")
-    }
-
     fn size(&self) -> usize {
         // todo: this assumes they all have the same length... find a way to enforce that?
         let azimuths = self.data.len();
