@@ -2,23 +2,20 @@
 
 mod audio_engine;
 mod scene;
+mod util;
 
 use plotters::chart::{ChartBuilder, LabelAreaPosition};
 use plotters::prelude::{BitMapBackend, IntoDrawingArea};
 use plotters::series::LineSeries;
 use plotters::style::full_palette::RED;
 use plotters::style::{BLUE, WHITE};
-use scene::FRAME_SIZE;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
-    use crate::audio_engine::signal_processor::fft::complex;
     use crate::audio_engine::AudioEngine;
-    use crate::scene::hrtf_filter::{HrtfFilter, HrtfOptions};
-    use crate::scene::{AudioProvider, Frame};
-    use std::f32::consts::PI;
+    use crate::scene::source::{AudioProvider, Frame, FRAME_SIZE};
     // pub unsafe fn alloc_empty_buffer() -> Box<FftBuffer> {
     //     let layout = std::alloc::Layout::new::<FftBuffer>();
     //     let ptr = std::alloc::alloc_zeroed(layout) as *mut FftBuffer;
@@ -165,44 +162,44 @@ mod tests {
         }
     }
 
-    #[ignore]
-    #[test]
-    fn freq_test() {
-        let frame = AudioProvider::from_file("./datasources/sample-15s.wav")[15];
-        // let frame = AudioProvider::frequency(5000.0);
-
-        let filter_options = HrtfOptions {
-            azimuth_samples: 0, // one every 2 deg
-            elevation_samples: 1, // one every 2 deg
-            elevation_max: PI, // full sphere was captured
-            elevation_min: 0.0, // "
-            sampling_rate: 44100.0
-        };
-
-        let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", GPU_WINDOW_SIZE);
-
-        unsafe {
-            let mut engine = AudioEngine::new();
-
-            println!("started rendering");
-            engine.process_frames_frequency(vec![frame]);
-            let (left_window, right_window) = engine.process_frames_frequency(vec![frame]);
-            println!("finished rendering");
-
-            let left_gpu = left_window.iter().map(|s| complex::magnitude(*s)).collect();
-            let right_gpu = right_window.iter().map(|s| complex::magnitude(*s)).collect();
-
-            let reference = filter.for_angle(2.0 * PI * 0.0, PI * 0.5);
-            let left_ref = reference.0.iter().map(|s| complex::magnitude(*s)).collect();
-            let right_ref = reference.1.iter().map(|s| complex::magnitude(*s)).collect();
-
-            // let mse = left_amplitude.iter().zip(left_amplitude_2.clone()).fold(0.0, |acc, (&l, r)| acc + (l - r) * (l - r));
-            // println!("Mean square error: {}", mse / GPU_WINDOW_SIZE as f32);
-
-            plot_histogram(&left_ref, &left_gpu, "./left.png");
-            plot_histogram(&right_ref, &right_gpu, "./right.png");
-        }
-    }
+    // #[ignore]
+    // #[test]
+    // fn freq_test() {
+    //     let frame = AudioProvider::from_file("./datasources/sample-15s.wav")[15];
+    //     // let frame = AudioProvider::frequency(5000.0);
+    // 
+    //     let filter_options = HrtfOptions {
+    //         azimuth_samples: 0, // one every 2 deg
+    //         elevation_samples: 1, // one every 2 deg
+    //         elevation_max: PI, // full sphere was captured
+    //         elevation_min: 0.0, // "
+    //         sampling_rate: 44100.0
+    //     };
+    // 
+    //     let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", GPU_WINDOW_SIZE);
+    // 
+    //     unsafe {
+    //         let mut engine = AudioEngine::new();
+    // 
+    //         println!("started rendering");
+    //         // engine.process_frames_frequency(vec![frame]);
+    //         // let (left_window, right_window) = engine.process_frames_frequency(vec![frame]);
+    //         println!("finished rendering");
+    // 
+    //         // let left_gpu = left_window.iter().map(|s| complex::magnitude(*s)).collect();
+    //         // let right_gpu = right_window.iter().map(|s| complex::magnitude(*s)).collect();
+    // 
+    //         let reference = filter.for_angle(2.0 * PI * 0.0, PI * 0.5);
+    //         let left_ref = reference.0.iter().map(|s| complex::magnitude(*s)).collect();
+    //         let right_ref = reference.1.iter().map(|s| complex::magnitude(*s)).collect();
+    // 
+    //         // let mse = left_amplitude.iter().zip(left_amplitude_2.clone()).fold(0.0, |acc, (&l, r)| acc + (l - r) * (l - r));
+    //         // println!("Mean square error: {}", mse / GPU_WINDOW_SIZE as f32);
+    //         // 
+    //         // plot_histogram(&left_ref, &left_gpu, "./left.png");
+    //         // plot_histogram(&right_ref, &right_gpu, "./right.png");
+    //     }
+    // }
 
     // #[ignore]
     // #[test]

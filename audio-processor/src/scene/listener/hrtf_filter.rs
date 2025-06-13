@@ -1,15 +1,16 @@
 // For now, we only support Gauss-Legendre distribution of points on the sphere
 // todo: find a better way to load raw samples from the HRTF, maybe support lebedev  
 
-use std::f32::consts::PI;
-
 use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
 use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::GpuData;
 use crevice::std430::Vec2;
 use crevice::std430::Vec4;
 use sofar::reader::{Filter, OpenOptions, Sofar};
+use std::f32::consts::PI;
+use std::rc::Rc;
 
+#[derive(Clone)]
 pub struct HrtfOptions {
     pub elevation_samples: u32,
     pub azimuth_samples: u32,
@@ -18,12 +19,13 @@ pub struct HrtfOptions {
     pub sampling_rate: f32,
 }
 
+#[derive(Clone)]
 pub struct HrtfFilter {
     pub options: HrtfOptions,
     pub filter_len: usize,
     pub left: HrtfFilterChannel, 
     pub right: HrtfFilterChannel,
-    sofa: Sofar
+    sofa: Rc<Sofar>
 }
 
 impl HrtfFilter {
@@ -77,7 +79,7 @@ impl HrtfFilter {
             filter_len: pad_length,
             left: HrtfFilterChannel { data: left_data },
             right: HrtfFilterChannel { data: right_data },
-            sofa
+            sofa: Rc::from(sofa)
         }
     }
 
@@ -102,6 +104,7 @@ impl HrtfFilter {
     }
 }
 
+#[derive(Clone)]
 pub struct HrtfFilterChannel {
     data: Vec<Vec<Vec<Vec4>>> // azimuth<altitude<frequency<dampening>>>
 }

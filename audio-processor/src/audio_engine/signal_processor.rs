@@ -6,14 +6,14 @@ mod hrtf;
 pub mod transfer;
 mod delay;
 
-use crate::audio_engine::buffer_uploader::BufferUploader;
-use crate::audio_engine::gpu_structures::{AudioInstances, DelayBuffer, DownloadBuffer, FftBuffer, FftConstants, FftUbo, GpuFrame, GpuWindow, UploadBuffer, GPU_WINDOW_SIZE, MAX_UPLOADED_FRAMES};
+use crate::audio_engine::buffer_initializer::BufferInitializer;
+use crate::audio_engine::gpu_structures::{DelayBuffer, DownloadBuffer, FftBuffer, FftConstants, FftUbo, GpuFrame, GpuWindow, InstanceBuffer, UploadBuffer, GPU_WINDOW_SIZE, MAX_SOURCES};
 use crate::audio_engine::signal_processor::delay::DelayModule;
 use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
 use crate::audio_engine::signal_processor::transfer::TransferModule;
 use crate::audio_engine::{read_file_words, GpuData};
-use crate::scene::hrtf_filter::HrtfFilter;
+use crate::scene::Scene;
 use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PushConstantRange, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::{Device, Instance};
 use crevice::std430::{AsStd430, Vec2};
@@ -21,12 +21,14 @@ use std::f32::consts::PI;
 use std::intrinsics::transmute;
 use std::rc::Rc;
 use std::slice::from_ref;
+use std::sync::Arc;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 
 pub struct SignalProcessor {
+    scene: Arc<Scene>,
     device: Device,
-
     buffer_allocator: Rc<Allocator>,
+
     transfer_queue: (Queue, u32),
     compute_queue: (Queue, u32),
     compute_command_buffer: CommandBuffer,
@@ -36,6 +38,8 @@ pub struct SignalProcessor {
     // for Delay
     delay_buffer: Buffer,
     delay_buffer_memory: Allocation,
+    instance_buffer: Buffer,
+    instance_buffer_memory: Allocation,
 
     // For FFT
     fft_gpu_buffers: [Buffer; 2],
@@ -45,8 +49,6 @@ pub struct SignalProcessor {
     fft_ubo_memories: Vec<Allocation>,
 
     // for HRTF
-    hrtf_ubo: Buffer,
-    hrtf_ubo_memory: Allocation,
     hrtf_output: Buffer,
     hrtf_output_memory: Allocation,
     hrtfs: [Image; 2],
@@ -62,16 +64,15 @@ pub struct SignalProcessor {
     counter: usize,
 }
 
-// todo: better inspect mutability
 impl SignalProcessor {
     pub unsafe fn new(
+        scene: Arc<Scene>,
         instance: &Instance,
         gpu: &PhysicalDevice,
         device: Device,
         transfer_queue: (Queue, u32),
         compute_queue: (Queue, u32),
-        buffer_uploader: &mut BufferUploader,
-        filter: HrtfFilter
+        buffer_uploader: &mut BufferInitializer
     ) -> Self {
         let stages = FftModule::fft_stages(GPU_WINDOW_SIZE);
 
@@ -429,7 +430,7 @@ impl SignalProcessor {
 
         let (mut instance_buffer, instance_buffer_memory) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(AudioInstances::max_size() as u64)
+                .size(InstanceBuffer::max_size() as u64)
                 .usage(BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST)
                 .queue_family_indices(from_ref(&compute_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
@@ -446,11 +447,8 @@ impl SignalProcessor {
             (buffer, memory)
         };
 
-        // Populate the UBO
-        let mut data = AudioInstances::new();
-        data.push_instance(3.0, 2.0, 1.0, 0);
-        data.push_instance(3.0, 2.0, 1.0, 1);
-
+        // Populate the instance buffer
+        let mut data = InstanceBuffer::from_scene_data(scene.clone());
         buffer_uploader.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut instance_buffer);
 
         let (mut hrtf_output, hrtf_output_memory) = {
@@ -472,6 +470,7 @@ impl SignalProcessor {
 
         buffer_uploader.clear_buffer(&device, compute_queue.0.clone(), &mut hrtf_output, size_of::<GpuWindow>() as u64 * 2);
 
+        let filter = scene.listener.filter.clone();
         let ((mut hrtf_left, hrtf_left_mem, hrtf_left_view), (mut hrtf_right, hrtf_right_mem, hrtf_right_view)) = {
             let image_info = ImageCreateInfo::default()
                 .image_type(ImageType::TYPE_3D)
@@ -906,6 +905,7 @@ impl SignalProcessor {
         );
 
         let transfer_module = TransferModule::new(
+            scene.clone(),
             buffer_allocator.clone(),
             device.clone(),
             transfer_queue.0.clone(),
@@ -916,10 +916,11 @@ impl SignalProcessor {
         );
 
         Self {
+            scene,
             device,
-
             buffer_allocator,
-            transfer_queue, 
+
+            transfer_queue,
             compute_queue,
             compute_command_buffer,
             transfer_command_buffer,
@@ -927,14 +928,14 @@ impl SignalProcessor {
 
             delay_buffer,
             delay_buffer_memory,
+            instance_buffer,
+            instance_buffer_memory,
 
             fft_gpu_buffers: [fft_gpu_buf_1, fft_gpu_buf_2],
             fft_gpu_buffers_memory: [fft_gpu_mem_1, fft_gpu_mem_2],
             fft_ubos,
             fft_ubo_memories,
 
-            hrtf_ubo: instance_buffer,
-            hrtf_ubo_memory: instance_buffer_memory,
             hrtf_output,
             hrtf_output_memory,
             hrtfs: [hrtf_left, hrtf_right],
@@ -951,15 +952,15 @@ impl SignalProcessor {
         }
     }
 
-    pub unsafe fn process_frames(&mut self, frames: Vec<GpuFrame>) -> (GpuFrame, GpuFrame) {
+    pub unsafe fn process_frames(&mut self) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
-        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.delay_buffer, self.counter);
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, &self.delay_buffer, self.counter);
 
         // move the delayed windows to the fft buffer
-        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, MAX_UPLOADED_FRAMES);
+        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, MAX_SOURCES);
 
         // perform fourier transform
-        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_UPLOADED_FRAMES);
+        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_SOURCES);
 
         // wipe the output buffer
         self.device.cmd_fill_buffer(self.compute_command_buffer, self.hrtf_output, 0, DownloadBuffer::max_size() as _, 0);
@@ -981,24 +982,8 @@ impl SignalProcessor {
         )
     }
 
-    pub unsafe fn process_frames_frequency(&mut self, frames: Vec<GpuFrame>) -> (Vec<Vec2>, Vec<Vec2>) {
-        // transfer data to delay buffer
-        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, frames, &self.fft_gpu_buffers[0], self.counter);
-
-        // move the delayed windows to the fft buffer
-        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, MAX_UPLOADED_FRAMES);
-
-        // perform fourier transform
-        self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_UPLOADED_FRAMES);
-
-        // perform HRTF dsp
-        self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);
-
-        // transfer data back
-        let (left, right) = self.transfer_module.download_windows(&mut self.compute_command_buffer, &self.hrtf_output);
-        self.counter += 1;
-
-        (window_to_vec(left), window_to_vec(right))
+    pub(super) fn get_instance_buffer(&self) -> Buffer {
+        self.instance_buffer
     }
 }
 
@@ -1014,7 +999,7 @@ impl Drop for SignalProcessor {
                 self.buffer_allocator.destroy_buffer(buf, alloc);
             }
 
-            self.buffer_allocator.destroy_buffer(self.hrtf_ubo, &mut self.hrtf_ubo_memory);
+            self.buffer_allocator.destroy_buffer(self.instance_buffer, &mut self.instance_buffer_memory);
             self.buffer_allocator.destroy_buffer(self.hrtf_output, &mut self.hrtf_output_memory);
             self.buffer_allocator.destroy_image(self.hrtfs[0], &mut self.hrtf_memories[0]);
             self.buffer_allocator.destroy_image(self.hrtfs[1], &mut self.hrtf_memories[1]);

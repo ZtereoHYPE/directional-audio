@@ -1,76 +1,55 @@
-// this module will be responsible for the scene sampling and splitting and stuff
-// as well as its interface
+use crate::scene::listener::AudioListener;
+use crate::scene::mesh::{SceneMesh, Triangle};
+use crate::scene::source::AudioSource;
+use crate::util::vec3;
+use crevice::std430::Vec3;
+use std::sync::Mutex;
 
-use std::f32::consts::PI;
+pub(crate) mod source;
+pub(crate) mod listener;
+pub(crate) mod mesh;
+pub(crate) mod bvh;
 
-use rand::Rng;
+pub(crate) struct Scene {
+    pub mesh: SceneMesh,
+    pub sources: Mutex<Vec<AudioSource>>,
+    pub listener: AudioListener,
+}
 
-pub mod hrtf_filter;
-mod source;
-mod listener;
+impl Scene {
+    pub(crate) fn new(sources: Vec<AudioSource>) -> Self {
+        let triangle = Triangle {
+            vertices: [
+                Vec3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Vec3 {
+                    x: 1.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Vec3 {
+                    x: 1.0,
+                    y: 1.0,
+                    z: 1.0,
+                }
+            ]
+        };
 
-// todo: move to source
-
-pub(crate) const FRAME_SIZE: usize = 512;
-
-pub type Frame = [f32; FRAME_SIZE];
-pub struct AudioProvider {}
-impl AudioProvider {
-    pub fn random_frame(amt: usize) -> Frame {
-        let mut rng = rand::rng();
-
-        let mut buffer = [0.0; FRAME_SIZE];
-        let mut phases: Vec<f32> = vec![0.0; amt];
-        let amplitudes: Vec<f32> = (0..amt).map(|_| rng.random_range(0.3..2.0)).collect();
-        let frequencies: Vec<f32> = (0..amt).map(|_| rng.random_range(0.05..1.0)).collect();
-
-        for value in buffer.iter_mut() {
-            for idx in 0..4 {
-                *value += phases[idx].sin() * amplitudes[idx];
-                phases[idx] += PI * frequencies[idx];
-            }
+        Self {
+            mesh: SceneMesh::from_triangles(vec![triangle]),
+            sources: Mutex::from(sources),
+            listener: AudioListener::new(vec3::from(0.0, 0.0, 0.0))
         }
-        
-        buffer
     }
 
-    pub fn from_file(name: &str) -> Vec<Frame> {
-        let mut reader = hound::WavReader::open(name)
-            .expect("Failed to open wav file!");
-
-        println!("bps {}, format {:?}", reader.spec().bits_per_sample, reader.spec().sample_format);
-        let channels = reader.spec().channels as usize;
-        
-        reader
-            .samples::<i16>()
-            .map(|s| s.unwrap())
-            .step_by(channels)
-            .collect::<Vec<_>>()
-            .chunks_exact(FRAME_SIZE)
-            .map(|chunk|
-                chunk
-                    .iter()
-                    .map(|&s| f32::from(s))
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap()
-            )
-            .collect::<Vec<Frame>>()
+    pub(crate) fn get_listener_location(&self) -> Vec3 {
+        *self.listener.location.lock().unwrap()
     }
 
-    pub fn frequency(freq: f32) -> Frame {
-        let mut buffer = [0.0; FRAME_SIZE];
-        let mut phase: f32 = 0.0;
-        
-        for value in buffer.iter_mut() {
-            *value = phase.sin() * 100.0;
-            phase += 2.0 * PI * (freq / 44100.0);
-        }
-
-        buffer
-    }
-
-    pub fn empty() -> Frame {
-        [0.0; FRAME_SIZE]
+    pub(crate) fn set_listener_location(&mut self, location: Vec3) {
+        *self.listener.location.lock().unwrap() = location;
     }
 }

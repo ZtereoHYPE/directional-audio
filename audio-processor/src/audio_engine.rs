@@ -13,6 +13,7 @@ use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
+use std::sync::Arc;
 use std::{fs::File, path::Path};
 use vk_mem::Allocation;
 
@@ -33,6 +34,8 @@ pub(crate) trait GpuData {
 }
 
 pub struct AudioEngine {
+    scene: Arc<Scene>,
+
     entry: Entry,
     instance: Instance,
     debug_callback: DebugUtilsMessengerEXT,
@@ -47,7 +50,7 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub(crate) unsafe fn new() -> Self {
+    pub(crate) unsafe fn new(scene: Arc<Scene>) -> Self {
         let entry = Entry::load().expect("Could not load audio_engine library");
 
         let instance = {
@@ -140,8 +143,6 @@ impl AudioEngine {
         // todo: better detection and selection of the various queues
         let compute_queue = device.get_device_queue(queue_family_index, 0);
 
-        let scene = Scene::new();
-
         let mut buffer_initializer = BufferInitializer::new(
             &instance,
             &device,
@@ -150,17 +151,17 @@ impl AudioEngine {
         );
 
         let signal_processor = SignalProcessor::new(
+            scene.clone(),
             &instance,
             &gpu,
             device.clone(),
             (compute_queue, queue_family_index),
             (compute_queue, queue_family_index),
             &mut buffer_initializer,
-            filter
         );
 
         let ray_tracer = RayTracer::new(
-            scene,
+            scene.clone(),
             &instance,
             &gpu,
             device.clone(),
@@ -169,6 +170,7 @@ impl AudioEngine {
         );
 
         Self {
+            scene,
             entry,
             instance,
             debug_callback,
@@ -181,7 +183,7 @@ impl AudioEngine {
         }
     }
 
-    pub(crate) fn process_frames(&mut self, frames: Vec<Frame>) -> (Frame, Frame) {
+    pub(crate) fn process_frames(&mut self) -> (Frame, Frame) {
         unsafe {
             self.ray_tracer.trace_rays();
             
@@ -198,8 +200,7 @@ impl AudioEngine {
                 InstanceBuffer::max_size() as DeviceSize
             );
 
-            let gpu_frames = frames.iter().map(|f| frame_to_gpu(f)).collect();
-            let (left, right) = self.signal_processor.process_frames(gpu_frames);
+            let (left, right) = self.signal_processor.process_frames();
 
             (
                 gpu_to_frame(&left),

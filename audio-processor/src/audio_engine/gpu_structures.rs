@@ -1,9 +1,12 @@
 use crate::audio_engine::ray_tracer::rays::SPHERE_POINTS;
 use crate::audio_engine::signal_processor::transfer::copy_to_box;
 use crate::audio_engine::GpuData;
-use crate::scene::source::{AudioSource, FRAME_SIZE};
+use crate::scene::source::FRAME_SIZE;
+use crate::scene::Scene;
+use crate::util::vec3;
 use crevice::std430::{AsStd430, Vec2, Vec3};
 use std::mem::ManuallyDrop;
+use std::sync::Arc;
 
 #[derive(AsStd430)]
 pub(crate) struct FftUbo {
@@ -13,6 +16,8 @@ pub(crate) struct FftUbo {
     pub(crate) angle_spin_factor: f32,
     pub(crate) normalization_factor: f32,
 }
+
+// todo: have buffers take ownership of (and even create) their own stuff!
 
 #[repr(C)]
 pub(crate) struct FftConstants {
@@ -38,7 +43,7 @@ pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 /// The upload buffer contains the stream data that gets uploaded to the GPU every frame.
 #[repr(C)]
 pub(crate) struct UploadBuffer {
-   pub windows: [GpuFrame; MAX_SOURCES]
+   pub frames: [GpuFrame; MAX_SOURCES]
 }
 
 impl GpuData for UploadBuffer {
@@ -58,7 +63,7 @@ impl GpuData for UploadBuffer {
 impl UploadBuffer {
     pub(crate) fn new() -> Self {
         Self {
-            windows: [[Vec2 { x: 0.0, y: 0.0 }; FRAME_SIZE]; MAX_SOURCES]
+            frames: [[Vec2 { x: 0.0, y: 0.0 }; FRAME_SIZE]; MAX_SOURCES]
         }
     }
 
@@ -68,13 +73,6 @@ impl UploadBuffer {
         }
 
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
-    }
-    
-    // todo: improve by allowing to insert individual frames at an index to not have to allocate a vector
-    pub(crate) fn insert_frames(&mut self, frames: Vec<GpuFrame>) {
-        for (idx, frame) in self.windows.iter_mut().enumerate() {
-            *frame = frames[idx];
-        }
     }
 
     pub(crate) fn max_size() -> usize {
@@ -131,7 +129,7 @@ pub(crate) const MAX_INSTANCES: usize = 64; // todo: currently limited by the sy
 #[repr(align(16))]
 pub(crate) struct AudioInstance {
     direction: Vec3,
-    delay: f32,
+    distance: f32,
     index: u32,
 }
 
@@ -154,18 +152,22 @@ impl GpuData for InstanceBuffer {
 }
 
 impl InstanceBuffer {
-    pub(crate) fn new() -> Self {
-        Self {
-            instances: Vec::new()
-        }
-    }
+    pub(crate) fn from_scene_data(scene: Arc<Scene>) -> Self {
+        let mut instance = Self {
+            instances: vec![]
+        };
 
-    pub(crate) fn push_instance(&mut self, x: f32, y: f32, z: f32, audio_stream_idx: u32) {
-        self.instances.push(AudioInstance {
-            direction: Vec3 {x, y, z},
-            delay: 0.0,
-            index: audio_stream_idx,
-        })
+        let sources = scene.sources.lock().unwrap();
+
+        for (idx, source) in sources.iter().enumerate() {
+            instance.instances.push(AudioInstance {
+                direction: source.coordinates,
+                distance: vec3::len(source.coordinates),
+                index: idx as u32,
+            });
+        }
+        
+        instance
     }
 
     pub(crate) fn max_size() -> usize {
@@ -189,15 +191,31 @@ impl DelayBuffer {
 ///////////////////////////////////////////
 /////////////// RAY TRACING ///////////////
 ///////////////////////////////////////////
-
-/// Audio Sources buffer, used by the ray tracer
-pub(crate) struct SourcesBuffer();
-impl SourcesBuffer {
-    pub(crate) fn max_size() -> usize {
-        MAX_SOURCES * size_of::<AudioSource>()
-    }
+pub(crate) struct SourcesBuffer {
+    sources: [Vec3; MAX_SOURCES]
 }
 
+impl SourcesBuffer {
+    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> {
+        if !pointer.cast::<Self>().is_aligned() {
+            panic!("The given pointer is not properly aligned!");
+        }
+
+        ManuallyDrop::new(Box::from_raw(pointer.cast()))
+    }
+
+    pub(crate) unsafe fn copy_coordinates(&mut self, scene: Arc<Scene>) {
+        let sources = scene.sources.lock().unwrap();
+
+        for (idx, source) in sources.iter().enumerate() {
+            self.sources[idx] = source.coordinates;
+        }
+    }
+
+    pub(crate) fn max_size() -> usize {
+        MAX_SOURCES * size_of::<Vec3>()
+    }
+}
 
 /// Ray Tracing output buffer
 #[derive(AsStd430)]

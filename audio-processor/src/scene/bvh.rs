@@ -7,6 +7,7 @@ use crevice::std430::Vec3;
 const MAX_BVH_DEPTH: usize = 64;
 const BVH_SPLIT_ATTEMPTS: usize = 8;
 
+#[derive(Clone)]
 pub(crate) struct BvhBuffer(pub Vec<BvhNode>);
 impl GpuData for BvhBuffer {
     unsafe fn serialize(&self, dst: *mut u8) {

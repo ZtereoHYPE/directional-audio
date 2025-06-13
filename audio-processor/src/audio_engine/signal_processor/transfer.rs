@@ -1,15 +1,18 @@
-use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuFrame, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES};
+use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES, MAX_SOURCES};
 use crate::audio_engine::GpuData;
 use crate::scene::source::FRAME_SIZE;
+use crate::scene::Scene;
 use ash::vk::{AccessFlags, Buffer, BufferCopy, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::u64::MAX;
 use vk_mem::{Allocation, Allocator};
 
 pub struct TransferModule {
+    scene: Arc<Scene>,
     allocator: Rc<Allocator>,
     device: Device,
     queue: Queue,
@@ -23,6 +26,7 @@ pub struct TransferModule {
 
 impl TransferModule {
     pub unsafe fn new(
+        scene: Arc<Scene>,
         allocator: Rc<Allocator>,
         device: Device,
         queue: Queue,
@@ -32,6 +36,7 @@ impl TransferModule {
         fence: Fence,
     ) -> TransferModule {
         TransferModule {
+            scene,
             allocator,
             device,
             queue,
@@ -43,12 +48,34 @@ impl TransferModule {
     }
 
     // todo: might switch to optional to remove a lot of these expects, in other modules too.
-    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, frames: Vec<GpuFrame>, dst: &Buffer, frame_counter: usize) {
-        let updated_amt = frames.len();
+    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, dst: &Buffer, frame_counter: usize) {
+        let mut regions = vec![];
+        let mut clear_frames: Vec<DeviceSize> = vec![];
+        {
+            let mut sources = self.scene.sources.lock().expect("Failed to unlock audio source mutex!");
+            let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
 
-        // copy frame to cpu buffer
-        let mut stream_buffer = UploadBuffer::from_memory_map(self.cpu_buffer_maps[0]);
-        stream_buffer.insert_frames(frames);
+            // copy frame to cpu buffer, keeping track of which regions are actually updated
+            let mut stream_buffer = UploadBuffer::from_memory_map(self.cpu_buffer_maps[0]);
+            for idx in 0..MAX_SOURCES {
+                let destination = idx * MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>() + delay_buffer_offset;
+                let mut has_data = false;
+                if (idx < sources.len()) {
+                    has_data = sources[idx].provider.next_frame(&mut stream_buffer.frames[idx]);
+                }
+
+                if (has_data) {
+                    regions.push(
+                        BufferCopy::default()
+                            .size((FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
+                            .src_offset((idx * FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
+                            .dst_offset(destination as DeviceSize)
+                    );
+                } else {
+                    clear_frames.push(destination as DeviceSize)
+                }
+            }
+        }
 
         self.allocator
             .flush_allocation(&self.cpu_buffer_memories[0], 0, WHOLE_SIZE)
@@ -65,24 +92,16 @@ impl TransferModule {
             .begin_command_buffer(*command_buffer, &begin_info)
             .expect("Failed to begin command buffer recording");
 
-        let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
-
-        let mut regions = vec![];
-        for idx in (0..updated_amt) {
-            regions.push(
-                BufferCopy::default()
-                    .size((FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
-                    .src_offset((idx * FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
-                    .dst_offset((idx * MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>() + delay_buffer_offset) as DeviceSize)
-            );
-        }
-
         self.device.cmd_copy_buffer(
             *command_buffer,
             self.cpu_buffers[0],
             *dst,
             &regions[..]
         );
+
+        for offset in clear_frames {
+            self.device.cmd_fill_buffer(*command_buffer, *dst, offset, (FRAME_SIZE * size_of::<Vec2>()) as DeviceSize, 0)
+        }
 
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::TRANSFER_WRITE) // flush any transfer write caches

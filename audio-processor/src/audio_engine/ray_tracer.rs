@@ -6,36 +6,40 @@ use crate::audio_engine::ray_tracer::kmeans::{CentroidBuffer, KMeansModule, Neig
 use crate::audio_engine::ray_tracer::rays::RayModule;
 use crate::audio_engine::GpuData;
 use crate::scene::Scene;
-use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo};
+use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
 use std::rc::Rc;
+use std::sync::Arc;
 use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
 
 pub(crate) struct RayTracer {
-    scene: Scene,
+    scene: Arc<Scene>,
     device: Device,
     buffer_allocator: Rc<Allocator>,
     async_queue: (Queue, u32),
     command_buffer: CommandBuffer,
     instance_buffer: Buffer,
+    sources_buffer: Buffer,
+    staging_sources_buffer: Buffer,
+    staging_sources_map: *mut u8,
     fence: Fence,
 
     ray_module: RayModule,
-    kmeans_module: KMeansModule,
+    cluster_module: KMeansModule,
 }
 
 impl RayTracer {
     pub(super) fn new(
-        scene: Scene,
+        scene: Arc<Scene>,
         instance: &Instance,
         gpu: &PhysicalDevice,
         device: Device,
         async_queue: (Queue, u32),
-        buffer_uploader: &mut BufferInitializer
+        buffer_initializer: &mut BufferInitializer
     ) -> Self {
         let buffer_allocator = unsafe {
             let allocator_create_info = AllocatorCreateInfo::new(
@@ -107,7 +111,30 @@ impl RayTracer {
                 .expect("Failed to create buffer")
         };
 
-        let (bvh_buffer, bvh_buffer_mem) = unsafe {
+        let (staging_sources_buffer, staging_sources_mem, staging_sources_map) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(SourcesBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&async_queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferHost,
+                ..Default::default()
+            };
+
+            let (buffer, mut memory) = buffer_allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer");
+
+            let map = buffer_allocator
+                .map_memory(&mut memory)
+                .expect("Failed to map memory");
+
+            (buffer, memory, map)
+        };
+
+        let (mut bvh_buffer, bvh_buffer_mem) = unsafe {
             let buffer_info = BufferCreateInfo::default()
                 .size(scene.mesh.bvh.size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
@@ -124,7 +151,7 @@ impl RayTracer {
                 .expect("Failed to create buffer")
         };
 
-        let (triangle_buffer, triangle_buffer_mem) = unsafe {
+        let (mut triangle_buffer, triangle_buffer_mem) = unsafe {
             let buffer_info = BufferCreateInfo::default()
                 .size(scene.mesh.triangles.size() as u64)
                 .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
@@ -140,6 +167,11 @@ impl RayTracer {
                 .create_buffer(&buffer_info, &allocation_info)
                 .expect("Failed to create buffer")
         };
+
+        unsafe {
+            buffer_initializer.upload_buffer_onetime(&device, async_queue.0, scene.mesh.bvh.clone(), &mut bvh_buffer);
+            buffer_initializer.upload_buffer_onetime(&device, async_queue.0, scene.mesh.triangles.clone(), &mut triangle_buffer);
+        }
 
         let (rt_output_buffer, rt_output_buffer_mem) = unsafe {
             let buffer_info = BufferCreateInfo::default()
@@ -193,7 +225,7 @@ impl RayTracer {
         };
         unsafe {
             let buffer_data = CentroidBuffer::from_initial_centroids(KMeansModule::initial_centroids());
-            buffer_uploader.upload_buffer_onetime(&device, async_queue.0, buffer_data, &mut centroid_buffer);
+            buffer_initializer.upload_buffer_onetime(&device, async_queue.0, buffer_data, &mut centroid_buffer);
         }
 
         let (instance_buffer, centroid_buffer_mem) = unsafe {
@@ -246,11 +278,19 @@ impl RayTracer {
             async_queue,
             command_buffer,
             instance_buffer,
+            sources_buffer,
+            staging_sources_buffer,
+            staging_sources_map,
             fence,
 
             ray_module,
-            kmeans_module,
+            cluster_module: kmeans_module,
         }
+    }
+
+    // todo: refactor to split that
+    fn init_buffers(&mut self) {
+
     }
 
     pub(super) unsafe fn trace_rays(&mut self) {
@@ -270,11 +310,21 @@ impl RayTracer {
             .begin_command_buffer(self.command_buffer, &begin_info)
             .expect("Failed to begin command buffer recording");
 
+        // Stage the new coordinates
+        SourcesBuffer::from_memory_map(self.staging_sources_map)
+            .copy_coordinates(self.scene.clone());
+
+        // todo: invalidate the allocation
+
+        // Copy from staging buffer
+        let region = BufferCopy::default().size(WHOLE_SIZE);
+        self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
+
         // Trace the rays
-        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, self.scene.listener_pos());
+        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, self.scene.get_listener_location());
 
         // Cluster the rays with kmeans
-        self.kmeans_module.cluster_rays(&mut self.command_buffer, MAX_SOURCES as u32);
+        self.cluster_module.cluster_rays(&mut self.command_buffer, MAX_SOURCES as u32);
 
         // Submit the command buffer
         self.device
