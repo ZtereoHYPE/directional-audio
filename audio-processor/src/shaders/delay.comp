@@ -18,7 +18,7 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct Instance {
     vec3 direction;
-    float delay; // in seconds
+    float dist; // in meters
     uint index;
 };
 
@@ -40,9 +40,10 @@ layout(binding = 2, std430) restrict buffer FftInput {
 };
 
 
-uint delayed_index(float delay, uint instance_idx) {
+uint delayed_index(float dist, uint instance_idx) {
     // if there's no delay, we can start at: initial offset shifted ahead by how many frames have passed
     uint zero_delay_start_idx = frame_idx * FRAME_SIZE + INITIAL_OFFSET; // no % DELAY_BUFFER_SIZE because it's handled later
+    float delay = dist / SOUND_SPEED;
 
     uint samples_delay = uint(delay * float(FRAME_SIZE) / SAMPLING_RATE);
     uint clamped_delay = uint(min(samples_delay, MAX_DELAY));
@@ -58,9 +59,8 @@ uint delayed_index(float delay, uint instance_idx) {
 
 // todo: this shader is also responsible for "reprojection"
 void main() {
-//    if (gl_GlobalInvocationID.y == 1) return;
     Instance instance = instances[gl_GlobalInvocationID.y];
-    uint sample_idx = delayed_index(instance.delay, instance.index);
+    uint sample_idx = delayed_index(instance.dist, instance.index);
     uint fft_idx = gl_GlobalInvocationID.y * WINDOW_SIZE + gl_GlobalInvocationID.x;
     fft_input[fft_idx] = samples[sample_idx];
 }

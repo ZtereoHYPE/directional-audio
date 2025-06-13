@@ -1,0 +1,295 @@
+// Information about what version and extensions of GLSL we are using
+#version 460
+#extension GL_EXT_scalar_block_layout : enable
+
+// todo: these should be specification constants
+const uint POINT_AMOUNT = 1024;
+const uint MAX_BVH_DEPTH = 64;
+const uint MAX_BOUNCES = 4;
+const uint SOURCE_AMOUNT = 1;
+
+const float PHI = radians(180) * (sqrt(5.0) - 1);
+const float EPSILON = 0.0001;
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+
+
+//////////////////////////////////////////
+///////////// DATA STRUCTURES ////////////
+//////////////////////////////////////////
+
+struct Triangle {
+    vec3 vertices[3]; // todo: compact?
+};
+
+struct HitRecord {
+    vec3 pos;
+    bool did_hit;
+    vec3 normal;
+    float t;
+};
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+vec3 ray_at(Ray ray, float t) {
+    return ray.origin + t * ray.direction;
+}
+
+struct BvhNode {
+    vec3 min;
+    uint idx;
+    vec3 max;
+    uint amt;
+};
+
+struct Output {
+    vec3 location;
+    float total_distance;
+    uint bounces;
+    uint source;
+    bool found_source;
+};
+
+
+
+//////////////////////////////////////////
+///// INPUTS & OUTPUTS OF THE SHADER /////
+//////////////////////////////////////////
+
+layout(push_constant, std430) uniform Camera {
+    vec3 origin;
+} camera;
+
+// todo: this should be a uniform; the access is coherent within a warp
+layout(std430, binding = 0) readonly buffer SourceLocations {
+    vec3 sources[];
+};
+
+layout(std430, binding = 1) readonly buffer BvhBuffer {
+    BvhNode bvh_nodes[];
+};
+
+layout(std430, binding = 2) readonly buffer TriangleBuffer {
+    Triangle triangles[];
+};
+
+layout(std430, binding = 3) writeonly buffer OutputBuffer {
+    vec3 output_camera_pos; // used for reprojection
+    Output outputs[];
+};
+
+
+
+//////////////////////////////////////////
+//////////////// FUNCTIONS ///////////////
+//////////////////////////////////////////
+
+// Generate the ray according to the Fibonacci sphere algorithm
+Ray generate_ray() {
+    float idx = gl_GlobalInvocationID.x;
+
+    float y = 1 - 2 * idx / float(POINT_AMOUNT - 1);
+    float radius = sqrt(1 - y * y);
+    float theta = PHI * idx;
+
+    Ray ray;
+    ray.direction = vec3(cos(theta) * radius, y, sin(theta) * radius); // note: Y up
+    ray.origin = camera.origin;
+
+    return ray;
+}
+
+HitRecord hit_triangle(Ray ray, Triangle triangle) {
+    HitRecord hit;
+    hit.did_hit = false;
+
+    // Get the normal vector of the plane the triangle lays on.
+    // This is done by performing a cross product between two of the sides of the triangle.
+    vec3 ab = triangle.vertices[1] - triangle.vertices[0];
+    vec3 ac = triangle.vertices[2] - triangle.vertices[0];
+    vec3 plane_normal = normalize(cross(ab, ac));
+
+    // Check if the ray is parallel to the plane, in which case no hit can happen
+    if (abs(dot(plane_normal, ray.direction)) < EPSILON) return hit;
+
+    vec3 o = ray.origin - triangle.vertices[0];
+    vec3 p = cross(ray.direction, ac);
+    vec3 q = cross(o, ab);
+    float inv_det = 1 / dot(p, ab);
+
+    // Find t using cramer's rule, and make sure the intersection happens in front of the camera
+    float t = dot(q, ac) * inv_det;
+    if (t < EPSILON) return hit;
+
+    // Find the barycentric coordinates
+    float u = dot(p, o) * inv_det;
+    float v = dot(q, ray.direction) * inv_det;
+    float w = 1 - u - v;    // to avoid gaps due to precision issues
+
+    // Check bounds of the barycentric coordinates.
+    vec3 coords = vec3(u, v, w);
+    if (any(lessThan(coords, vec3(0))) || any(greaterThan(coords, vec3(1)))) return hit;
+
+    hit.did_hit = t > EPSILON;
+    hit.t = t;
+    hit.pos = ray_at(ray, t);
+    hit.normal = plane_normal;
+
+    return hit;
+}
+
+/*
+ * AABB intersection code using the Slab method.
+ *
+ * This works by first solving the t parameter for each plane intersection, and
+ * then checking if any of the intersections with the plane that should be closer
+ * to the camera end up further away than the intersections of the opposite plane.
+ *
+ * More info at https://en.wikipedia.org/wiki/Slab_method
+ */
+float dist_aabb(Ray ray, BvhNode aabb) {
+    vec3 inv_dir = 1 / ray.direction;
+
+    // Solve for the intersection points with all 6 planes:
+    // origin_x + t * direction_x = x  (for all 3 dimensions)
+    vec3 t1 = (aabb.min - ray.origin) * inv_dir;
+    vec3 t2 = (aabb.max - ray.origin) * inv_dir;
+
+    // Get the closest and furthest intersections for each dimension
+    vec3 d_min = min(t1, t2);
+    vec3 d_max = max(t1, t2);
+
+    // Check if all far intersections happen after all close intersections
+    float t_min = max(max(d_min.x, d_min.y), d_min.z);
+    float t_max = min(min(d_max.x, d_max.y), d_max.z);
+
+    bool did_hit = (t_min <= t_max) && (t_max > 0);
+
+    return did_hit ? t_min : 1.0 / 0.0; //infinity
+}
+
+HitRecord hit_meshes(Ray ray) {
+    HitRecord hit;
+    hit.t = 1.0 / 0.0; // infinity
+    hit.did_hit = false;
+
+    // Setup stack for tree traversal
+    uint stack[MAX_BVH_DEPTH + 1], stack_ptr = 0;
+    stack[stack_ptr++] = 0;
+
+    while (stack_ptr > 0) {
+        BvhNode node = bvh_nodes[stack[--stack_ptr]];
+
+        if (node.amt != 0) {
+            // if it's a leaf, attempt to intersect its meshes
+            for (int tri = 0; tri < node.amt; tri++) {
+                Triangle triangle = triangles[node.idx + tri];
+                HitRecord current_hit = hit_triangle(ray, triangle);
+
+                if (current_hit.did_hit && current_hit.t < hit.t)
+                    hit = current_hit;
+            }
+        } else {
+            // Else push both nodes on the stack, in order of closest to furthest
+            // Only actually push nodes that can be closer than the already-hit
+            uint idx = node.idx;
+            float dist_left =  dist_aabb(ray, bvh_nodes[idx + 0]);
+            float dist_right = dist_aabb(ray, bvh_nodes[idx + 1]);
+
+            if (dist_left < dist_right) {
+                if (dist_right < hit.t) stack[stack_ptr++] = idx + 1;
+                if (dist_left < hit.t)  stack[stack_ptr++] = idx;
+            } else {
+                if (dist_left < hit.t)  stack[stack_ptr++] = idx;
+                if (dist_right < hit.t) stack[stack_ptr++] = idx + 1;
+            }
+        }
+    }
+
+    return hit;
+}
+
+void main() {
+    uint point_idx = gl_GlobalInvocationID.x;
+    uint source_idx = gl_GlobalInvocationID.y;
+
+    // Avoid generating more rays than requested
+    if (point_idx >= POINT_AMOUNT || source_idx >= SOURCE_AMOUNT)
+        return;
+
+    // todo: this data could maybe be passed via the cpu instead
+    if (point_idx == 0 && source_idx == 0)
+        output_camera_pos = camera.origin;
+
+    vec3 source = sources[source_idx];
+    // if gl_GlobalInvocationID.x == 0 additionally check for any direct paths to the sources, maybe
+
+    Ray main_ray = generate_ray();
+
+    Output output_; // _ because it's a reserved keyword
+    output_.location = main_ray.direction;
+    output_.total_distance = 0;
+    output_.bounces = 0;
+    output_.source = source_idx;
+    output_.found_source = false;
+
+    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
+        HitRecord mesh_hit = hit_meshes(main_ray);
+        if (!mesh_hit.did_hit)
+            break;
+
+        // If it's the first bounce, make sure to update the location to include the distance.
+        if (bounce == 0) {
+            output_.location *= mesh_hit.t;
+        }
+
+        // Increment the output's values
+        output_.total_distance += length(main_ray.origin - mesh_hit.pos);
+        output_.bounces++;
+
+        // Check if the source is visible
+        vec3 src_direction = source - mesh_hit.pos;
+        Ray shadow_ray;
+        shadow_ray.origin = mesh_hit.pos;
+        shadow_ray.direction = normalize(src_direction);
+        HitRecord shadow_hit = hit_meshes(shadow_ray);
+
+        // If we don't hit anything (before the source), we're done!
+        if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
+            output_.found_source = true;
+            output_.total_distance += length(src_direction);
+            break;
+        }
+
+        // Else, keep bouncing (using perfect reflections)
+        main_ray.origin = mesh_hit.pos;
+        main_ray.direction = reflect(main_ray.direction, mesh_hit.normal);
+    }
+
+    // store the result
+    outputs[source_idx * POINT_AMOUNT + point_idx] = output_;
+}
+
+//void main_optimized() {
+//    // Avoid generating more rays than requested
+//    if (gl_GlobalInvocationID.x > POINT_AMOUNT) return;
+//
+//    if (subgroupElect()) {
+//        Ray ray = generate_ray();
+//        // trace the ray
+//        // store the rays in the warp-shared storage
+//    }
+//
+//    vec3 source = sources[gl_GlobalInvocationID.y];
+//
+//    // for each position in the shared storage (incrementally)
+//        // cast a ray towards source
+//        // if source is visible, record the hit and stop
+//        // else continue
+//
+//    // store the result
+//}

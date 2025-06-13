@@ -1,6 +1,7 @@
+use crate::audio_engine::ray_tracer::rays::SPHERE_POINTS;
 use crate::audio_engine::signal_processor::transfer::copy_to_box;
 use crate::audio_engine::GpuData;
-use crate::scene::FRAME_SIZE;
+use crate::scene::source::{AudioSource, FRAME_SIZE};
 use crevice::std430::{AsStd430, Vec2, Vec3};
 use std::mem::ManuallyDrop;
 
@@ -24,12 +25,12 @@ pub(crate) struct FftBuffer();
 
 impl FftBuffer {
     pub(crate) fn max_size() -> usize {
-        MAX_UPLOADED_FRAMES * GPU_WINDOW_SIZE * size_of::<Vec2>()
+        MAX_SOURCES * GPU_WINDOW_SIZE * size_of::<Vec2>()
     }
 }
 
 
-pub(crate) const MAX_UPLOADED_FRAMES: usize = 2;
+pub(crate) const MAX_SOURCES: usize = 2;
 
 /// Represents a single audio frame on the GPU
 pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
@@ -37,7 +38,7 @@ pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 /// The upload buffer contains the stream data that gets uploaded to the GPU every frame.
 #[repr(C)]
 pub(crate) struct UploadBuffer {
-   pub windows: [GpuFrame; MAX_UPLOADED_FRAMES]
+   pub windows: [GpuFrame; MAX_SOURCES]
 }
 
 impl GpuData for UploadBuffer {
@@ -57,7 +58,7 @@ impl GpuData for UploadBuffer {
 impl UploadBuffer {
     pub(crate) fn new() -> Self {
         Self {
-            windows: [[Vec2 { x: 0.0, y: 0.0 }; FRAME_SIZE]; MAX_UPLOADED_FRAMES]
+            windows: [[Vec2 { x: 0.0, y: 0.0 }; FRAME_SIZE]; MAX_SOURCES]
         }
     }
 
@@ -124,7 +125,7 @@ impl DownloadBuffer {
 /// Instances represent "audio streams" and their locations.
 /// This allows a single stream to have an HRTF applied from multiple locations.
 /// The stream is represented as an index within the Stream Buffer.
-pub(crate) const MAX_INSTANCES: usize = 64; // todo: currently limited by the syncrhonization issues
+pub(crate) const MAX_INSTANCES: usize = 64; // todo: currently limited by the synchronization issues
 
 #[derive(AsStd430)]
 #[repr(align(16))]
@@ -134,11 +135,11 @@ pub(crate) struct AudioInstance {
     index: u32,
 }
 
-pub(crate) struct AudioInstances {
+pub(crate) struct InstanceBuffer {
     instances: Vec<AudioInstance>,
 }
 
-impl GpuData for AudioInstances {
+impl GpuData for InstanceBuffer {
     unsafe fn serialize(&self, dst: *mut u8) {
         std::ptr::copy_nonoverlapping(
             (&self.instances[..] as *const [AudioInstance]).cast(),
@@ -152,7 +153,7 @@ impl GpuData for AudioInstances {
     }
 }
 
-impl AudioInstances {
+impl InstanceBuffer {
     pub(crate) fn new() -> Self {
         Self {
             instances: Vec::new()
@@ -180,6 +181,37 @@ pub(crate) struct DelayBuffer();
 
 impl DelayBuffer {
     pub(crate) fn max_size() -> usize {
-        MAX_UPLOADED_FRAMES * FRAME_SIZE * MAX_DELAY_FRAMES * size_of::<Vec2>()
+        MAX_SOURCES * FRAME_SIZE * MAX_DELAY_FRAMES * size_of::<Vec2>()
+    }
+}
+
+
+///////////////////////////////////////////
+/////////////// RAY TRACING ///////////////
+///////////////////////////////////////////
+
+/// Audio Sources buffer, used by the ray tracer
+pub(crate) struct SourcesBuffer();
+impl SourcesBuffer {
+    pub(crate) fn max_size() -> usize {
+        MAX_SOURCES * size_of::<AudioSource>()
+    }
+}
+
+
+/// Ray Tracing output buffer
+#[derive(AsStd430)]
+#[repr(align(16))]
+pub(crate) struct Output {
+    direction: Vec3,
+    total_distance: f32,
+    bounces: u32,
+    source: u32,
+}
+
+pub(crate) struct OutputBuffer();
+impl OutputBuffer {
+    pub(crate) fn max_size() -> usize {
+        MAX_SOURCES * SPHERE_POINTS * 32
     }
 }

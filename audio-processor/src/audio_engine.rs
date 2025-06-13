@@ -1,26 +1,25 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 
-use crate::audio_engine::buffer_uploader::BufferUploader;
-use crate::audio_engine::gpu_structures::{GpuFrame, GPU_WINDOW_SIZE};
+use crate::audio_engine::buffer_initializer::BufferInitializer;
+use crate::audio_engine::gpu_structures::{GpuFrame, InstanceBuffer};
 use crate::audio_engine::ray_tracer::RayTracer;
 use crate::audio_engine::signal_processor::SignalProcessor;
-use crate::scene::hrtf_filter::{HrtfFilter, HrtfOptions};
-use crate::scene::{Frame, FRAME_SIZE};
+use crate::scene::source::{Frame, FRAME_SIZE};
+use crate::scene::Scene;
 use ash::ext::debug_utils;
-use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT};
+use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
 use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::borrow::Cow;
-use std::f32::consts::PI;
 use std::ffi::{c_char, CStr};
 use std::{fs::File, path::Path};
 use vk_mem::Allocation;
 
 pub(crate) mod signal_processor;
 pub(crate) mod gpu_structures;
-mod ray_tracer;
-mod buffer_uploader;
+pub(crate) mod ray_tracer;
+mod buffer_initializer;
 
 struct GpuBuffer {
     buffer: Buffer,
@@ -40,7 +39,9 @@ pub struct AudioEngine {
     gpu: PhysicalDevice,
     device: Device,
 
-    buffer_uploader: BufferUploader,
+    compute_queue: Queue,
+
+    buffer_initializer: BufferInitializer,
     signal_processor: SignalProcessor,
     ray_tracer: RayTracer,
 }
@@ -139,17 +140,9 @@ impl AudioEngine {
         // todo: better detection and selection of the various queues
         let compute_queue = device.get_device_queue(queue_family_index, 0);
 
-        let filter_options = HrtfOptions {
-            azimuth_samples: 90, // one every 2 deg
-            elevation_samples: 45, // one every 2 deg
-            elevation_max: 0.0, // full sphere was captured
-            elevation_min: PI, // "
-            sampling_rate: 44100.0
-        };
+        let scene = Scene::new();
 
-        let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", GPU_WINDOW_SIZE); //todo: explore with lower size...
-
-        let mut buffer_uploader = BufferUploader::new(
+        let mut buffer_initializer = BufferInitializer::new(
             &instance,
             &device,
             &gpu,
@@ -162,11 +155,18 @@ impl AudioEngine {
             device.clone(),
             (compute_queue, queue_family_index),
             (compute_queue, queue_family_index),
-            &mut buffer_uploader,
+            &mut buffer_initializer,
             filter
         );
 
-        let ray_tracer = RayTracer::new();
+        let ray_tracer = RayTracer::new(
+            scene,
+            &instance,
+            &gpu,
+            device.clone(),
+            (compute_queue, queue_family_index),
+            &mut buffer_initializer,
+        );
 
         Self {
             entry,
@@ -174,7 +174,8 @@ impl AudioEngine {
             debug_callback,
             gpu,
             device,
-            buffer_uploader,
+            compute_queue,
+            buffer_initializer,
             signal_processor,
             ray_tracer,
         }
@@ -182,6 +183,21 @@ impl AudioEngine {
 
     pub(crate) fn process_frames(&mut self, frames: Vec<Frame>) -> (Frame, Frame) {
         unsafe {
+            self.ray_tracer.trace_rays();
+            
+            // panic!();
+            
+            let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
+            let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
+
+            self.buffer_initializer.copy_buffer(
+                &self.device, 
+                self.compute_queue, 
+                &mut src_audio_instances, 
+                &mut dst_audio_instances, 
+                InstanceBuffer::max_size() as DeviceSize
+            );
+
             let gpu_frames = frames.iter().map(|f| frame_to_gpu(f)).collect();
             let (left, right) = self.signal_processor.process_frames(gpu_frames);
 
@@ -189,13 +205,6 @@ impl AudioEngine {
                 gpu_to_frame(&left),
                 gpu_to_frame(&right)
             )
-        }
-    }
-
-    pub(crate) fn process_frames_frequency(&mut self, frames: Vec<Frame>) -> (Vec<Vec2>, Vec<Vec2>) {
-        unsafe {
-            let gpu_frames = frames.iter().map(|f| frame_to_gpu(f)).collect();
-            self.signal_processor.process_frames_frequency(gpu_frames)
         }
     }
 

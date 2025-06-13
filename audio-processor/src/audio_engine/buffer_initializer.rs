@@ -11,7 +11,7 @@ use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreat
 const STAGING_BUFFER_SIZE: u64 = 256 * 1024 * 1024; // 128 MB
 
 // Util object to one-time upload data to a buffer using a staging buffer
-pub(crate) struct BufferUploader {
+pub(crate) struct BufferInitializer {
     allocator: Allocator,
     staging_buffer: Buffer,
     staging_memory: Allocation,
@@ -21,7 +21,7 @@ pub(crate) struct BufferUploader {
     fence: Fence,
 }
 
-impl BufferUploader {
+impl BufferInitializer {
     // todo: make this work for different queues! (inspect queue transfers)
     pub(crate) fn new(instance: &Instance, device: &Device, gpu: &PhysicalDevice, compute_queue_idx: u32) -> Self {
         let allocator = {
@@ -186,6 +186,17 @@ impl BufferUploader {
         self.begin_command(device);
 
         device.cmd_fill_buffer(self.command_buffer, *buffer, 0, size, 0);
+
+        self.end_command(device, queue);
+    }
+
+    // todo: remove this when proper pipelining is implemented
+    pub(crate) unsafe fn copy_buffer(&mut self, device: &Device, queue: Queue, src: &mut Buffer, dst: &mut Buffer, size: DeviceSize) {
+        self.begin_command(device);
+        
+        let region = BufferCopy::default().size(size);
+        
+        device.cmd_copy_buffer(self.command_buffer, *src, *dst, from_ref(&region));
 
         self.end_command(device, queue);
     }

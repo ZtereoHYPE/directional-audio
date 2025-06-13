@@ -1,0 +1,97 @@
+#version 460
+
+// todo: look into sharing constant indices maybe? Such that only one constant buffer can be used
+const uint POINT_AMOUNT = 1024;
+const uint SOURCE_AMOUNT = 1;
+const uint KMEANS_CENTROIDS = 8;
+
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Output {
+    vec3 direction;
+    float total_distance;
+    uint bounces;
+    uint source;
+    bool found_source;
+};
+
+// todo: right now, bounce counts don't affect the instance in any way
+struct Instance {
+    vec3 direction;
+    float dist; // in meters
+    uint index;
+};
+
+layout(push_constant, std430) uniform ProgramState {
+    bool final_run; // indicates the algorithm to write the results to the FFT buffer
+};
+
+layout(binding = 0, std430) readonly buffer RtOutputBuffer {
+    vec3 output_camera_pos; // used for reprojection
+    Output outputs[];
+};
+
+layout(binding = 1) writeonly restrict buffer KMeansCentroids {
+    vec3 centroids[];
+};
+
+layout(binding = 2) readonly restrict buffer KMeansNeighbours {
+    int neighbours[];
+};
+
+layout(binding = 3, std430) writeonly restrict buffer AudioInstances {
+    Instance instances[];
+};
+
+// Very naive implementation of the sum part of kmeans.
+// The only parallelization is the simultaneous processing of sources,
+// all the points are processed sequentially. This could be greatly improved, by
+// using some sort of matrix multiplication, but latency is not as urgent here.
+// Dispatch size: X = SOURCE_AMOUNT, Y = 1, Z = 1
+void main() {
+    uint source_idx = gl_GlobalInvocationID.x;
+
+    if (source_idx >= SOURCE_AMOUNT)
+        return;
+
+    uint denominators[KMEANS_CENTROIDS];
+    vec3 tmp_centroids[KMEANS_CENTROIDS];
+    float distances[KMEANS_CENTROIDS];
+    for (int c = 0; c < KMEANS_CENTROIDS; c++) {
+        denominators[c] = 0;
+        tmp_centroids[c] = vec3(0);
+        distances[c] = 0;
+    }
+
+    for (int point = 0; point < POINT_AMOUNT; point++) {
+        int centroid_ = neighbours[source_idx * POINT_AMOUNT + point];
+        if (centroid_ == -1)
+            continue;
+
+        Output output_ = outputs[source_idx * POINT_AMOUNT + point];
+        denominators[centroid_]++;
+        tmp_centroids[centroid_] += output_.direction;
+        distances[centroid_] += output_.total_distance;
+    }
+
+    // todo: find a better way to average these to avoid imprecision,
+    //       perhaps the same trick used for raytracing pixel values
+
+    if (final_run) {
+        // Store the instances in the AudioInstances buffer
+        Instance instance;
+        instance.index = source_idx;
+        for (int c = 0; c < KMEANS_CENTROIDS; c++) {
+            instance.direction = tmp_centroids[c] / float(denominators[c]);
+            instance.dist = distances[c] / float(denominators[c]);
+
+            instances[source_idx * KMEANS_CENTROIDS + c] = instance;
+        }
+    } else {
+        // Store the clusters in the KMeansCentroids buffer;
+        for (int c = 0; c < KMEANS_CENTROIDS; c++) {
+            centroids[source_idx * SOURCE_AMOUNT + c] = tmp_centroids[c] / float(denominators[c]);
+        }
+    }
+}

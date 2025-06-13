@@ -1,10 +1,10 @@
 use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
-use crate::audio_engine::signal_processor::fft::complex::{root_of_unity, scalar_mult};
+use crate::util::complex;
+use crate::util::complex::{root_of_unity, scalar_mult};
 use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue};
 use ash::Device;
 use crevice::std430::Vec2;
 use std::array::from_ref;
-
 // todo: maybe use newtype pattern to refer to buffers?
 
 pub(crate) const RADIX_AMT: usize = 3;
@@ -46,8 +46,8 @@ impl FftModule {
         descriptor_set_layout: DescriptorSetLayout,
         queue: Queue,
         stages: Vec<FftStage>,
-    ) -> FftModule {
-        FftModule {
+    ) -> Self {
+        Self {
             device,
             pipelines,
             pipeline_layout,
@@ -182,51 +182,5 @@ impl FftModule {
         }
 
         buffer
-    }
-}
-
-pub mod complex {
-    use crevice::std430::Vec2;
-    use std::f32::consts::PI;
-
-    pub fn root_of_unity(len: isize) -> Vec2 {
-        let angle = 2.0 * PI / len as f32;
-        Vec2 {
-            x: angle.cos(),
-            y: angle.sin(),
-        }
-    }
-
-    pub fn mult(left: Vec2, right: Vec2) -> Vec2 {
-        Vec2 {
-            x: left.x * right.x - left.y * right.y,
-            y: left.x * right.y + left.y * right.x,
-        }
-    }
-
-    pub fn sum(mut left: Vec2, right: Vec2) -> Vec2 {
-        left.x += right.x;
-        left.y += right.y;
-        left
-    }
-
-    pub fn sub(mut left: Vec2, right: Vec2) -> Vec2 {
-        left.x -= right.x;
-        left.y -= right.y;
-        left
-    }
-
-    pub fn scalar_mult(mut left: Vec2, right: f32) -> Vec2 {
-        left.x *= right;
-        left.y *= right;
-        left
-    }
-
-    pub fn magnitude(complex: Vec2) -> f32 {
-        (complex.x * complex.x + complex.y * complex.y).sqrt()
-    }
-
-    pub fn phase(complex: Vec2) -> f32 {
-        f32::atan2(complex.y, complex.x)
     }
 }

@@ -1,6 +1,6 @@
 use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuFrame, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES};
 use crate::audio_engine::GpuData;
-use crate::scene::FRAME_SIZE;
+use crate::scene::source::FRAME_SIZE;
 use ash::vk::{AccessFlags, Buffer, BufferCopy, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::Vec2;
@@ -164,7 +164,7 @@ impl TransferModule {
             .expect("Failed to submit command buffer");
     
         self.device
-            .wait_for_fences(from_ref(&self.fence), true, MAX)
+            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
             .expect("Failed to wait for fence!");
     
         self.allocator
