@@ -1,14 +1,9 @@
-// For now, we only support Gauss-Legendre distribution of points on the sphere
-// todo: find a better way to load raw samples from the HRTF, maybe support lebedev  
-
-use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
 use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::GpuData;
 use crevice::std430::Vec2;
 use crevice::std430::Vec4;
-use sofar::reader::{Filter, OpenOptions, Sofar};
+use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
-use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct HrtfOptions {
@@ -25,7 +20,6 @@ pub struct HrtfFilter {
     pub filter_len: usize,
     pub left: HrtfFilterChannel, 
     pub right: HrtfFilterChannel,
-    sofa: Rc<Sofar>
 }
 
 impl HrtfFilter {
@@ -79,28 +73,7 @@ impl HrtfFilter {
             filter_len: pad_length,
             left: HrtfFilterChannel { data: left_data },
             right: HrtfFilterChannel { data: right_data },
-            sofa: Rc::from(sofa)
         }
-    }
-
-    /// elevation is 0..PI, azimuth is 0..2PI
-    pub fn for_angle(&self, azimuth: f32, elevation: f32) -> (Vec<Vec2>, Vec<Vec2>) {
-        let mut filter = Filter::new(self.sofa.filter_len());
-
-        let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
-        self.sofa.filter(x, y, z, &mut filter);
-
-        let left_transformed = transform_filter(&filter.left, GPU_WINDOW_SIZE)
-            .iter()
-            .map(|f| linear_polar_to_cartesian(*f))
-            .collect();
-
-        let right_transformed = transform_filter(&filter.right, GPU_WINDOW_SIZE)
-            .iter()
-            .map(|f| linear_polar_to_cartesian(*f))
-            .collect();
-
-        (left_transformed, right_transformed)
     }
 }
 
