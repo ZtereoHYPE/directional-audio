@@ -52,12 +52,12 @@ impl GpuData for TriangleBuffer {
 }
 
 pub(crate) struct SceneMesh {
-    pub bvh: BvhBuffer,
-    pub triangles: TriangleBuffer,
+    pub(crate) bvh: BvhBuffer,
+    pub(crate) triangles: TriangleBuffer,
 }
 
 impl SceneMesh {
-    pub(crate) fn from_triangles(mut triangles: Vec<Triangle>) -> Self {
+    pub(super) fn from_triangles(mut triangles: Vec<Triangle>) -> Self {
         let bvh_nodes = BvhBuilder::new(&mut triangles).build();
 
         Self {

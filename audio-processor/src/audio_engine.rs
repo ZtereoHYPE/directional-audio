@@ -9,11 +9,10 @@ use crate::scene::Scene;
 use ash::ext::debug_utils;
 use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
-use crevice::std430::Vec2;
+use crevice::std430::{Vec2, Vec3};
 use std::array::from_ref;
 use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
-use std::sync::Arc;
 use std::{fs::File, path::Path};
 use vk_mem::Allocation;
 
@@ -34,7 +33,7 @@ pub(crate) trait GpuData {
 }
 
 pub struct AudioEngine {
-    scene: Arc<Scene>,
+    scene: Scene,
 
     entry: Entry,
     instance: Instance,
@@ -50,7 +49,7 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub(crate) unsafe fn new(scene: Arc<Scene>) -> Self {
+    pub(crate) unsafe fn new(scene: Scene) -> Self {
         let entry = Entry::load().expect("Could not load audio_engine library");
 
         let instance = {
@@ -85,7 +84,7 @@ impl AudioEngine {
                 .message_type(vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
                         | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
                 )
-                .pfn_user_callback(Some(Self::debug_callback));
+                .pfn_user_callback(Some(debug_callback));
 
             let debug_utils_loader = debug_utils::Instance::new(&entry, &instance);
 
@@ -151,7 +150,7 @@ impl AudioEngine {
         );
 
         let signal_processor = SignalProcessor::new(
-            scene.clone(),
+            &scene,
             &instance,
             &gpu,
             device.clone(),
@@ -161,7 +160,7 @@ impl AudioEngine {
         );
 
         let ray_tracer = RayTracer::new(
-            scene.clone(),
+            &scene,
             &instance,
             &gpu,
             device.clone(),
@@ -185,8 +184,8 @@ impl AudioEngine {
 
     pub(crate) fn process_frames(&mut self) -> (Frame, Frame) {
         unsafe {
-            self.ray_tracer.trace_rays();
-            
+            self.ray_tracer.trace_rays(&self.scene);
+
             let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
             let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
 
@@ -200,7 +199,8 @@ impl AudioEngine {
 
             let last_rt_pos = self.ray_tracer.get_last_rt_pos();
 
-            let (left, right) = self.signal_processor.process_frames(last_rt_pos);
+            // todo: instead of passin scene in here just pass what they exactly need (even above with trace_rays)
+            let (left, right) = self.signal_processor.process_frames(&mut self.scene, last_rt_pos);
 
             (
                 gpu_to_frame(&left),
@@ -209,32 +209,14 @@ impl AudioEngine {
         }
     }
 
-    unsafe extern "system" fn debug_callback(
-        message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-        message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-        p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
-        _user_data: *mut std::os::raw::c_void,
-    ) -> vk::Bool32 {
-        let callback_data = *p_callback_data;
-        let message_id_number = callback_data.message_id_number;
+    pub(crate) fn update_listener(&mut self, new_location: Vec3) {
+        self.scene.listener.location = new_location;
+    }
 
-        let message_id_name = if callback_data.p_message_id_name.is_null() {
-            Cow::from("")
-        } else {
-            CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-        };
-
-        let message = if callback_data.p_message.is_null() {
-            Cow::from("")
-        } else {
-            CStr::from_ptr(callback_data.p_message).to_string_lossy()
-        };
-
-        println!(
-            "{message_severity:?}:\n{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n",
-        );
-
-        vk::FALSE
+    pub(crate) fn update_sources(&mut self, new_locations: Vec<(usize, Vec3)>) {
+        for (idx, location) in new_locations {
+            self.scene.sources[idx].coordinates = location;
+        }
     }
 }
 
@@ -242,6 +224,34 @@ impl Drop for AudioEngine {
     fn drop(&mut self) {
         // todo: Cleanup!
     }
+}
+
+unsafe extern "system" fn debug_callback(
+    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
+    _user_data: *mut std::os::raw::c_void,
+) -> vk::Bool32 {
+    let callback_data = *p_callback_data;
+    let message_id_number = callback_data.message_id_number;
+
+    let message_id_name = if callback_data.p_message_id_name.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
+    };
+
+    let message = if callback_data.p_message.is_null() {
+        Cow::from("")
+    } else {
+        CStr::from_ptr(callback_data.p_message).to_string_lossy()
+    };
+
+    println!(
+        "{message_severity:?}:\n{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n",
+    );
+
+    vk::FALSE
 }
 
 // Util function for submodules

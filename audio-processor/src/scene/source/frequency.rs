@@ -2,7 +2,7 @@ use crate::audio_engine::gpu_structures::GpuFrame;
 use crate::scene::source::AudioProvider;
 use std::f32::consts::PI;
 
-pub(crate) struct FrequencyAudioProvider {
+pub struct FrequencyAudioProvider {
     frequency: f32,
     phase: f32,
 }

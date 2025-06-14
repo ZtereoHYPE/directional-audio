@@ -1,7 +1,7 @@
 use crate::audio_engine::gpu_structures::GpuFrame;
 use crate::scene::source::{AudioProvider, Frame, FRAME_SIZE};
 
-pub(crate) struct FileAudioProvider {
+pub struct FileAudioProvider {
     frames: Vec<Frame>,
     current_idx: usize
 }

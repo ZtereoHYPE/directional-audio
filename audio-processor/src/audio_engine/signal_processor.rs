@@ -22,11 +22,9 @@ use std::f32::consts::PI;
 use std::intrinsics::transmute;
 use std::rc::Rc;
 use std::slice::from_ref;
-use std::sync::Arc;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 
 pub struct SignalProcessor {
-    scene: Arc<Scene>,
     device: Device,
     buffer_allocator: Rc<Allocator>,
 
@@ -67,7 +65,7 @@ pub struct SignalProcessor {
 
 impl SignalProcessor {
     pub unsafe fn new(
-        scene: Arc<Scene>,
+        scene: &Scene,
         instance: &Instance,
         gpu: &PhysicalDevice,
         device: Device,
@@ -916,7 +914,6 @@ impl SignalProcessor {
         );
 
         Self {
-            scene,
             device,
             buffer_allocator,
 
@@ -952,12 +949,12 @@ impl SignalProcessor {
         }
     }
 
-    pub unsafe fn process_frames(&mut self, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
+    pub unsafe fn process_frames(&mut self, scene: &mut Scene, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
-        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, self.scene.clone(), &self.delay_buffer, self.counter);
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, scene, &self.delay_buffer, self.counter);
 
         // move the delayed windows to the fft buffer
-        let camera_delta = vec3::sub(self.scene.get_listener_location(), last_rt_pos);
+        let camera_delta = vec3::sub(scene.listener.location, last_rt_pos);
         self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, MAX_SOURCES);
 
         // perform fourier transform

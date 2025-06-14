@@ -7,7 +7,6 @@ use ash::Device;
 use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::u64::MAX;
 use vk_mem::{Allocation, Allocator};
 
@@ -45,33 +44,31 @@ impl TransferModule {
     }
 
     // todo: might switch to optional to remove a lot of these expects, in other modules too.
-    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, scene: Arc<Scene>, dst: &Buffer, frame_counter: usize) {
+    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, scene: &mut Scene, dst: &Buffer, frame_counter: usize) {
         let mut regions = vec![];
         let mut clear_frames: Vec<DeviceSize> = vec![];
         
-        {
-            let mut sources = scene.sources.lock().expect("Failed to unlock audio source mutex!");
-            let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
+        let mut sources = &mut scene.sources;
+        let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
 
-            // copy frame to cpu buffer, keeping track of which regions are actually updated
-            let mut stream_buffer = UploadBuffer::from_memory_map(self.cpu_buffer_maps[0]);
-            for idx in 0..MAX_SOURCES {
-                let destination = idx * MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>() + delay_buffer_offset;
-                let mut has_data = false;
-                if (idx < sources.len()) {
-                    has_data = sources[idx].provider.next_frame(&mut stream_buffer.frames[idx]);
-                }
+        // copy frame to cpu buffer, keeping track of which regions are actually updated
+        let mut stream_buffer = UploadBuffer::from_memory_map(self.cpu_buffer_maps[0]);
+        for idx in 0..MAX_SOURCES {
+            let destination = idx * MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>() + delay_buffer_offset;
+            let mut has_data = false;
+            if (idx < sources.len()) {
+                has_data = sources[idx].provider.next_frame(&mut stream_buffer.frames[idx]);
+            }
 
-                if (has_data) {
-                    regions.push(
-                        BufferCopy::default()
-                            .size((FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
-                            .src_offset((idx * FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
-                            .dst_offset(destination as DeviceSize)
-                    );
-                } else {
-                    clear_frames.push(destination as DeviceSize)
-                }
+            if (has_data) {
+                regions.push(
+                    BufferCopy::default()
+                        .size((FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
+                        .src_offset((idx * FRAME_SIZE * size_of::<Vec2>()) as DeviceSize)
+                        .dst_offset(destination as DeviceSize)
+                );
+            } else {
+                clear_frames.push(destination as DeviceSize)
             }
         }
 

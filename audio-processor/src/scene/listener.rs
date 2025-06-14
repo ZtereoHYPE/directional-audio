@@ -2,13 +2,12 @@ use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
 use crate::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
 use crevice::std430::Vec3;
 use std::f32::consts::PI;
-use std::sync::Mutex;
 
 pub(crate) mod hrtf_filter;
 
 pub(crate) struct AudioListener {
-    pub(super) location: Mutex<Vec3>,
-    pub filter: HrtfFilter
+    pub(crate) location: Vec3,
+    pub(crate) filter: HrtfFilter
 }
 
 impl AudioListener {
@@ -24,7 +23,7 @@ impl AudioListener {
         let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa", GPU_WINDOW_SIZE);
 
         Self {
-            location: Mutex::from(location),
+            location,
             filter
         }
     }

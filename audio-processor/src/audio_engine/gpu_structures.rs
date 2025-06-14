@@ -6,7 +6,6 @@ use crate::scene::Scene;
 use crate::util::vec3;
 use crevice::std430::{AsStd430, Vec2, Vec3};
 use std::mem::ManuallyDrop;
-use std::sync::Arc;
 
 #[derive(AsStd430)]
 pub(crate) struct FftUbo {
@@ -152,14 +151,12 @@ impl GpuData for InstanceBuffer {
 }
 
 impl InstanceBuffer {
-    pub(crate) fn from_scene_data(scene: Arc<Scene>) -> Self {
+    pub(crate) fn from_scene_data(scene: &Scene) -> Self {
         let mut instance = Self {
             instances: vec![]
         };
 
-        let sources = scene.sources.lock().unwrap();
-
-        for (idx, source) in sources.iter().enumerate() {
+        for (idx, source) in scene.sources.iter().enumerate() {
             instance.instances.push(AudioInstance {
                 direction: source.coordinates,
                 distance: vec3::len(source.coordinates),
@@ -204,10 +201,8 @@ impl SourcesBuffer {
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
     }
 
-    pub(crate) unsafe fn copy_coordinates(&mut self, scene: Arc<Scene>) {
-        let sources = scene.sources.lock().unwrap();
-
-        for (idx, source) in sources.iter().enumerate() {
+    pub(crate) unsafe fn copy_coordinates(&mut self, scene: &Scene) {
+        for (idx, source) in scene.sources.iter().enumerate() {
             self.sources[idx] = source.coordinates;
         }
     }

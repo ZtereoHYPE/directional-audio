@@ -1,5 +1,5 @@
-mod file;
-mod frequency;
+pub mod file;
+pub mod frequency;
 
 use crate::audio_engine::gpu_structures::GpuFrame;
 use crevice::std430::Vec3;
@@ -13,20 +13,20 @@ pub trait AudioProvider {
     fn next_frame(&mut self, frame: &mut GpuFrame) -> bool;
 }
 
-pub(crate) struct AudioSource {
+pub struct AudioSource {
     pub coordinates: Vec3,
-    pub provider: Box<dyn AudioProvider>
+    pub provider: Box<dyn AudioProvider + Send>
 }
 
 impl AudioSource {
-    pub(crate) fn new(provider: Box<dyn AudioProvider>, coordinates: Vec3) -> Self {
+    pub fn new(provider: Box<dyn AudioProvider + Send>, coordinates: Vec3) -> Self {
         Self {
             coordinates,
             provider
         }
     }
 
-    pub(crate) fn update_location(&mut self, coordinates: Vec3) {
+    pub fn update_location(&mut self, coordinates: Vec3) {
         self.coordinates = coordinates;
     }
 }

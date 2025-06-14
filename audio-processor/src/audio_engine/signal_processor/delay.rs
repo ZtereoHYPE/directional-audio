@@ -1,7 +1,7 @@
 use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
 use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue, ShaderStageFlags};
 use ash::Device;
-use crevice::std430::Std430;
+use crevice::std430::{Std430, Vec3};
 use std::array::from_ref;
 
 pub(crate) struct DelayModule {
@@ -32,7 +32,7 @@ impl DelayModule {
         }
     }
 
-    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: u32, instance_amt: usize) {
+    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: u32, camera_delta: Vec3, instance_amt: usize) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -48,8 +48,8 @@ impl DelayModule {
             self.pipeline
         );
 
-        let frame_counter_data = frame_counter.as_bytes();
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, frame_counter_data);
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, camera_delta.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 12, frame_counter.as_bytes());
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt as u32);
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);

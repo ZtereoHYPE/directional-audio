@@ -11,14 +11,12 @@ use ash::{Device, Instance};
 use crevice::std430::Vec3;
 use std::array::from_ref;
 use std::rc::Rc;
-use std::sync::Arc;
 use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
 
 pub(crate) struct RayTracer {
-    scene: Arc<Scene>,
     device: Device,
     buffer_allocator: Rc<Allocator>,
     async_queue: (Queue, u32),
@@ -37,7 +35,7 @@ pub(crate) struct RayTracer {
 
 impl RayTracer {
     pub(super) fn new(
-        scene: Arc<Scene>,
+        scene: &Scene,
         instance: &Instance,
         gpu: &PhysicalDevice,
         device: Device,
@@ -274,10 +272,9 @@ impl RayTracer {
             async_queue.0,
         );
 
-        let last_rt_pos = scene.get_listener_location();
+        let last_rt_pos = scene.listener.location;
 
         Self {
-            scene,
             device,
             buffer_allocator,
             async_queue,
@@ -300,8 +297,8 @@ impl RayTracer {
 
     }
 
-    pub(super) unsafe fn trace_rays(&mut self) {
-        let last_rt_pos = self.scene.get_listener_location();
+    pub(super) unsafe fn trace_rays(&mut self, scene: &Scene) {
+        let last_rt_pos = scene.listener.location;
         self.device
             .reset_fences(from_ref(&self.fence))
             .expect("Failed to reset raytracer fence!");
@@ -320,7 +317,7 @@ impl RayTracer {
 
         // Stage the new coordinates
         SourcesBuffer::from_memory_map(self.staging_sources_map)
-            .copy_coordinates(self.scene.clone());
+            .copy_coordinates(scene);
 
         // todo: invalidate the allocation
 
