@@ -8,6 +8,7 @@ use crate::audio_engine::GpuData;
 use crate::scene::Scene;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
+use crevice::std430::Vec3;
 use std::array::from_ref;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -30,6 +31,8 @@ pub(crate) struct RayTracer {
 
     ray_module: RayModule,
     cluster_module: KMeansModule,
+
+    last_rt_pos: Vec3
 }
 
 impl RayTracer {
@@ -271,6 +274,8 @@ impl RayTracer {
             async_queue.0,
         );
 
+        let last_rt_pos = scene.get_listener_location();
+
         Self {
             scene,
             device,
@@ -285,6 +290,8 @@ impl RayTracer {
 
             ray_module,
             cluster_module: kmeans_module,
+
+            last_rt_pos,
         }
     }
 
@@ -294,6 +301,7 @@ impl RayTracer {
     }
 
     pub(super) unsafe fn trace_rays(&mut self) {
+        let last_rt_pos = self.scene.get_listener_location();
         self.device
             .reset_fences(from_ref(&self.fence))
             .expect("Failed to reset raytracer fence!");
@@ -321,7 +329,7 @@ impl RayTracer {
         self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
 
         // Trace the rays
-        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, self.scene.get_listener_location());
+        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos);
 
         // Cluster the rays with kmeans
         self.cluster_module.cluster_rays(&mut self.command_buffer, MAX_SOURCES as u32);
@@ -342,9 +350,15 @@ impl RayTracer {
         self.device
             .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
             .expect("Failed to wait for fence!");
+
+        self.last_rt_pos = last_rt_pos; // update it only once it's fully done
     }
 
     pub(super) fn get_instance_buffer(&self) -> Buffer {
         self.instance_buffer
+    }
+
+    pub(super) fn get_last_rt_pos(&self) -> Vec3 {
+        self.last_rt_pos
     }
 }

@@ -23,11 +23,12 @@ struct Instance {
 };
 
 
-layout(push_constant, std430) uniform Time {
+layout(push_constant, std430) uniform Camera {
+    vec3 camera_delta;
     uint frame_idx;
 };
 
-layout(binding = 0, std430) readonly restrict buffer AudioInstances {
+layout(binding = 0, std430) restrict buffer AudioInstances {
     Instance instances[];
 };
 
@@ -56,11 +57,18 @@ uint delayed_index(float dist, uint instance_idx) {
 
 // width of dispatch MUST BE == WINDOW_SIZE
 // height of dispatch is given by instance count
-
-// todo: this shader is also responsible for "reprojection"
 void main() {
     Instance instance = instances[gl_GlobalInvocationID.y];
-    uint sample_idx = delayed_index(instance.dist, instance.index);
+    vec3 corrected_dir = instance.direction - camera_delta;
+    float corrected_dist = instance.dist - length(instance.direction) + length(corrected_dir);
+
+    // If we are the first invocation for an instance, save it
+    if (gl_GlobalInvocationID.y == 0) {
+        instances[gl_GlobalInvocationID.y].direction = corrected_dir;
+        instances[gl_GlobalInvocationID.y].dist = corrected_dist;
+    }
+
+    uint sample_idx = delayed_index(corrected_dist, instance.index);
     uint fft_idx = gl_GlobalInvocationID.y * WINDOW_SIZE + gl_GlobalInvocationID.x;
     fft_input[fft_idx] = samples[sample_idx];
 }

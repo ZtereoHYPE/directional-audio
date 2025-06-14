@@ -12,7 +12,6 @@ use std::u64::MAX;
 use vk_mem::{Allocation, Allocator};
 
 pub struct TransferModule {
-    scene: Arc<Scene>,
     allocator: Rc<Allocator>,
     device: Device,
     queue: Queue,
@@ -26,7 +25,6 @@ pub struct TransferModule {
 
 impl TransferModule {
     pub unsafe fn new(
-        scene: Arc<Scene>,
         allocator: Rc<Allocator>,
         device: Device,
         queue: Queue,
@@ -36,7 +34,6 @@ impl TransferModule {
         fence: Fence,
     ) -> TransferModule {
         TransferModule {
-            scene,
             allocator,
             device,
             queue,
@@ -48,11 +45,12 @@ impl TransferModule {
     }
 
     // todo: might switch to optional to remove a lot of these expects, in other modules too.
-    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, dst: &Buffer, frame_counter: usize) {
+    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, scene: Arc<Scene>, dst: &Buffer, frame_counter: usize) {
         let mut regions = vec![];
         let mut clear_frames: Vec<DeviceSize> = vec![];
+        
         {
-            let mut sources = self.scene.sources.lock().expect("Failed to unlock audio source mutex!");
+            let mut sources = scene.sources.lock().expect("Failed to unlock audio source mutex!");
             let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
 
             // copy frame to cpu buffer, keeping track of which regions are actually updated

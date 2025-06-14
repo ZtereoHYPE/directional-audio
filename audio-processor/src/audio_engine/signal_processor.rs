@@ -14,9 +14,10 @@ use crate::audio_engine::signal_processor::hrtf::HrtfModule;
 use crate::audio_engine::signal_processor::transfer::TransferModule;
 use crate::audio_engine::{read_file_words, GpuData};
 use crate::scene::Scene;
+use crate::util::vec3;
 use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PushConstantRange, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::{Device, Instance};
-use crevice::std430::{AsStd430, Vec2};
+use crevice::std430::{AsStd430, Vec2, Vec3};
 use std::f32::consts::PI;
 use std::intrinsics::transmute;
 use std::rc::Rc;
@@ -833,7 +834,7 @@ impl SignalProcessor {
         let (delay_pipeline, delay_pipeline_layout) = {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(4);
+                .size(16);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .set_layouts(from_ref(&delay_descriptor_layout))
@@ -905,7 +906,6 @@ impl SignalProcessor {
         );
 
         let transfer_module = TransferModule::new(
-            scene.clone(),
             buffer_allocator.clone(),
             device.clone(),
             transfer_queue.0.clone(),
@@ -952,12 +952,13 @@ impl SignalProcessor {
         }
     }
 
-    pub unsafe fn process_frames(&mut self) -> (GpuFrame, GpuFrame) {
+    pub unsafe fn process_frames(&mut self, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
-        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, &self.delay_buffer, self.counter);
+        self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, self.scene.clone(), &self.delay_buffer, self.counter);
 
         // move the delayed windows to the fft buffer
-        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, MAX_SOURCES);
+        let camera_delta = vec3::sub(self.scene.get_listener_location(), last_rt_pos);
+        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, MAX_SOURCES);
 
         // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_SOURCES);

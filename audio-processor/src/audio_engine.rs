@@ -187,8 +187,6 @@ impl AudioEngine {
         unsafe {
             self.ray_tracer.trace_rays();
             
-            // panic!();
-            
             let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
             let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
 
@@ -200,7 +198,9 @@ impl AudioEngine {
                 InstanceBuffer::max_size() as DeviceSize
             );
 
-            let (left, right) = self.signal_processor.process_frames();
+            let last_rt_pos = self.ray_tracer.get_last_rt_pos();
+
+            let (left, right) = self.signal_processor.process_frames(last_rt_pos);
 
             (
                 gpu_to_frame(&left),

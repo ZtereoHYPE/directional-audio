@@ -28,7 +28,6 @@ layout(push_constant, std430) uniform ProgramState {
 };
 
 layout(binding = 0, std430) readonly buffer RtOutputBuffer {
-    vec3 output_camera_pos; // used for reprojection
     Output outputs[];
 };
 
