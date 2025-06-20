@@ -1,8 +1,10 @@
 use godot::prelude::*;
 
-mod player;
-mod audio;
-struct MyExtension;
+mod audio_listener;
+mod audio_source;
+mod audio_mesh;
+
+struct AudioVisualization;
 
 #[gdextension]
-unsafe impl ExtensionLibrary for MyExtension {}
+unsafe impl ExtensionLibrary for AudioVisualization {}

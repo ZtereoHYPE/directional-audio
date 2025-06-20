@@ -7,5 +7,5 @@ edition = "2024"
 crate-type = ["cdylib"]  # Compile this crate to a dynamic C library.
 
 [dependencies]
-godot = "0.2.4"
+godot = "0.3.1"
 audio-processor = { path = "../../audio-processor"}
