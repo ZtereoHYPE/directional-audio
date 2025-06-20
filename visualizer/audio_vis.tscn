@@ -46,11 +46,10 @@ input_right = "move_right"
 input_forward = "move_forward"
 input_back = "move_backwards"
 
-[node name="AudioListenerNode" type="AudioListenerNode" parent="Player"]
-hrtf_filter = "res://audio/HRIR_FULL2DEG.sofa"
+[node name="AudioListenerNode" type="Node3D" parent="Player"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.59103, -0.455017, -11.5315)
 
-[node name="AudioMeshNode" type="AudioMeshNode" parent="."]
+[node name="AudioMeshNode" type="StaticBody3D" parent="."]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="AudioMeshNode"]
 shape = SubResource("ConcavePolygonShape3D_6fmou")
@@ -59,7 +58,5 @@ shape = SubResource("ConcavePolygonShape3D_6fmou")
 mesh = SubResource("ArrayMesh_6fmou")
 skeleton = NodePath("../..")
 
-[node name="AudioSourceNode" type="AudioSourceNode" parent="."]
-audio_file = "uid://dhg2lnxohwpvf"
-loop_audio = true
+[node name="AudioSourceNode" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.84842, -6.59833)
