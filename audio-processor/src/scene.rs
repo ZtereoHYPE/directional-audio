@@ -3,24 +3,25 @@ use crate::scene::mesh::{SceneMesh, Triangle};
 use crate::scene::source::AudioSource;
 use crate::util::vec3;
 use crevice::std430::Vec3;
+use crate::scene::listener::hrtf_filter::HrtfOptions;
 
-pub(crate) mod source;
-pub(crate) mod listener;
-pub(crate) mod mesh;
+pub mod source;
+pub mod listener;
+pub mod mesh;
 pub(crate) mod bvh;
 
-pub(crate) struct Scene {
+pub struct Scene {
     pub(crate) mesh: SceneMesh,
     pub(crate) sources: Vec<AudioSource>,
     pub(crate) listener: AudioListener,
 }
 
 impl Scene {
-    fn new(sources: Vec<AudioSource>, triangles: Vec<Triangle>) -> Self {
+    pub fn new(sources: Vec<AudioSource>, triangles: Vec<Triangle>, hrtf_filter: &str, hrtf_options: HrtfOptions) -> Self {
         Self {
             mesh: SceneMesh::from_triangles(triangles),
             sources,
-            listener: AudioListener::new(vec3::from(0.0, 0.0, 0.0))
+            listener: AudioListener::new(vec3::from(0.0, 0.0, 0.0), hrtf_filter, hrtf_options)
         }
     }
 

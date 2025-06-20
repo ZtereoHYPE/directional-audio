@@ -3,11 +3,12 @@ use crate::scene::source::{AudioProvider, Frame, FRAME_SIZE};
 
 pub struct FileAudioProvider {
     frames: Vec<Frame>,
+    loop_audio: bool,
     current_idx: usize
 }
 
 impl FileAudioProvider {
-    pub(crate) fn new(name: &str) -> Self {
+    pub fn new(name: &str, loop_audio: bool) -> Self {
         let mut reader = hound::WavReader::open(name)
             .expect("Failed to open wav file!");
 
@@ -32,6 +33,7 @@ impl FileAudioProvider {
 
         Self {
             frames,
+            loop_audio,
             current_idx: 0
         }
     }
@@ -49,6 +51,9 @@ impl AudioProvider for FileAudioProvider {
             }
             
             return true;
+        } else if self.loop_audio {
+            self.current_idx = 0;
+            return self.next_frame(frame);
         }
         
         false

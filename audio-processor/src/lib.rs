@@ -2,7 +2,7 @@
 
 mod audio_engine;
 pub mod scene;
-mod util;
+pub mod util;
 
 use crate::audio_engine::AudioEngine;
 use crate::scene::source::file::FileAudioProvider;
@@ -13,7 +13,7 @@ use crevice::std430::Vec3;
 use plotters::prelude::IntoDrawingArea;
 use std::error::Error;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -23,7 +23,7 @@ enum Message {
     UpdateSources(Vec<(usize, Vec3)>)
 }
 
-struct AudioEngineMonitor {
+pub struct AudioEngineMonitor {
     msg_tx: Sender<Message>,
     frame_rx: Receiver<(Frame, Frame)>,
     vulkan_thread: JoinHandle<()>
@@ -33,8 +33,6 @@ impl AudioEngineMonitor {
     pub fn start(mut scene: Scene) -> Self {
         let (msg_tx, msg_rx) = mpsc::channel();
         let (frame_tx, frame_rx) = mpsc::channel();
-
-        scene.sources.push(AudioSource::new(Box::from(FileAudioProvider::new("mrow")), vec3::from(0.0,0.0,0.0)));
 
         let vulkan_thread = thread::spawn(move || {
             let engine = unsafe {
@@ -59,8 +57,8 @@ impl AudioEngineMonitor {
         self.msg_tx.send(Message::UpdateSources(sources)).unwrap()
     }
 
-    pub fn get_next_frame(&self) -> Option<(Frame, Frame)> {
-        self.frame_rx.try_recv().ok()
+    pub fn get_frames(&self, max: usize) -> Vec<(Frame, Frame)> {
+        self.frame_rx.try_iter().take(max).collect()
     }
 
     pub fn terminate(self) {
@@ -73,7 +71,11 @@ impl AudioEngineMonitor {
             match msg_rx.try_recv() {
                 Ok(Message::UpdateListener(listener)) => engine.update_listener(listener),
                 Ok(Message::UpdateSources(sources)) => engine.update_sources(sources),
-                Ok(Message::Terminate) | Err(_) => break,
+                Ok(Message::Terminate) => break,
+                Err(TryRecvError::Empty) => {},
+                Err(e) => {
+                    println!("Error receiving message: {}", e);
+                }
             }
 
             frame_tx.send(engine.process_frames()).unwrap()

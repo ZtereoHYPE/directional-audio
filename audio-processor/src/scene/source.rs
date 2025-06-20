@@ -1,11 +1,12 @@
 pub mod file;
 pub mod frequency;
+pub mod quiet;
 
 use crate::audio_engine::gpu_structures::GpuFrame;
 use crevice::std430::Vec3;
 use rand::Rng;
 
-pub(crate) const FRAME_SIZE: usize = 512;
+pub const FRAME_SIZE: usize = 512;
 pub type Frame = [f32; FRAME_SIZE];
 
 pub trait AudioProvider {
@@ -14,8 +15,8 @@ pub trait AudioProvider {
 }
 
 pub struct AudioSource {
-    pub coordinates: Vec3,
-    pub provider: Box<dyn AudioProvider + Send>
+    pub(crate) coordinates: Vec3,
+    pub(crate) provider: Box<dyn AudioProvider + Send>
 }
 
 impl AudioSource {

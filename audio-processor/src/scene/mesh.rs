@@ -3,9 +3,9 @@ use crate::scene::bvh::{BvhBuffer, BvhBuilder};
 use crate::util::{vec3, Axis};
 use crevice::std430::Vec3;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Triangle {
-    pub(crate) vertices: [Vec3; 3],
+    pub vertices: [Vec3; 3],
 }
 
 impl Triangle {
