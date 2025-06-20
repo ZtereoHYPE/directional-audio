@@ -447,7 +447,7 @@ impl SignalProcessor {
         };
 
         // Populate the instance buffer
-        let mut data = InstanceBuffer::from_scene_data(scene.clone());
+        let mut data = InstanceBuffer::from_scene_data(scene);
         buffer_uploader.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut instance_buffer);
 
         let (mut hrtf_output, hrtf_output_memory) = {
