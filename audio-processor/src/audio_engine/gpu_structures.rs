@@ -208,7 +208,7 @@ impl SourcesBuffer {
     }
 
     pub(crate) fn max_size() -> usize {
-        MAX_SOURCES * size_of::<Vec3>()
+        size_of::<SourcesBuffer>()
     }
 }
 

@@ -6,12 +6,12 @@ use crate::audio_engine::ray_tracer::kmeans::{CentroidBuffer, KMeansModule, Neig
 use crate::audio_engine::ray_tracer::rays::RayModule;
 use crate::audio_engine::GpuData;
 use crate::scene::Scene;
-use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
+use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
 use crevice::std430::Vec3;
 use std::array::from_ref;
 use std::rc::Rc;
-use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
+use vk_mem::{Alloc, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
@@ -115,12 +115,13 @@ impl RayTracer {
         let (staging_sources_buffer, staging_sources_mem, staging_sources_map) = unsafe {
             let buffer_info = BufferCreateInfo::default()
                 .size(SourcesBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER)
                 .queue_family_indices(from_ref(&async_queue.1))
                 .sharing_mode(SharingMode::EXCLUSIVE);
 
             let allocation_info = vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::AutoPreferHost,
+                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
                 ..Default::default()
             };
 
@@ -316,13 +317,12 @@ impl RayTracer {
             .expect("Failed to begin command buffer recording");
 
         // Stage the new coordinates
-        SourcesBuffer::from_memory_map(self.staging_sources_map)
-            .copy_coordinates(scene);
+        SourcesBuffer::from_memory_map(self.staging_sources_map).copy_coordinates(scene);
 
         // todo: invalidate the allocation
 
         // Copy from staging buffer
-        let region = BufferCopy::default().size(WHOLE_SIZE);
+        let region = BufferCopy::default().size(SourcesBuffer::max_size() as DeviceSize);
         self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
 
         // Trace the rays
