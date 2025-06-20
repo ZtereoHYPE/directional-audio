@@ -127,24 +127,26 @@ impl<'a> BvhBuilder<'a> {
 
         // Perform the split
         let mut left_idx = 0;
-        let mut right_idx = indices.len() - 1;
+        let mut right_idx = (indices.len() - 1) as isize;
         while left_idx <= right_idx {
-            let tri = self.triangles[indices[left_idx] as usize];
+            let tri = self.triangles[indices[left_idx as usize] as usize];
             let center = (tri.axis_min(split_axis) + tri.axis_max(split_axis)) / 2.0;
 
             if (center < split_pos) {
                 left_idx += 1;
             } else {
                 // This ends up ordering the index array
-                indices.swap(left_idx, right_idx);
+                indices.swap(left_idx as usize, right_idx as usize);
                 right_idx -= 1;
             }
         }
 
         // Avoid creating empty nodes
-        if ((left_idx == 0) || (right_idx == indices.len() - 1)) {
+        if ((left_idx == 0) || (right_idx == indices.len() as isize - 1)) {
             return;
         }
+
+        let left_idx = left_idx as usize;
 
         // Add the children indices and recurse down
         let left_node_idx = self.bvh_list.len();
