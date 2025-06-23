@@ -1,6 +1,7 @@
-[gd_scene load_steps=7 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=8 format=4 uid="uid://u8slr1sr2sxb"]
 
 [ext_resource type="PackedScene" uid="uid://bs72ogkvdd7d6" path="res://addons/proto_controller/proto_controller.tscn" id="1_6fmou"]
+[ext_resource type="Texture2D" uid="uid://c72lqe2pq4p1a" path="res://speaker.png" id="2_s3eio"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_6fmou"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -39,24 +40,34 @@ transform = Transform3D(-0.72252, -0.550055, 0.418813, 0.150748, 0.465867, 0.871
 shadow_enabled = true
 
 [node name="Player" parent="." instance=ExtResource("1_6fmou")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.59103, 0.455017, 11.5315)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.5762, 0.81523, -6.83337)
 can_freefly = true
 input_left = "move_left"
 input_right = "move_right"
 input_forward = "move_forward"
 input_back = "move_backwards"
 
-[node name="AudioListenerNode" type="Node3D" parent="Player"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.59103, -0.455017, -11.5315)
+[node name="AudioListenerNode" type="AudioListenerNode" parent="Player"]
+hrtf_filter = "res://audio/HRIR_FULL2DEG.sofa"
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0639277, 1.63569, -0.0750828)
 
-[node name="AudioMeshNode" type="StaticBody3D" parent="."]
+[node name="AudioMeshNode" type="AudioMeshNode" parent="."]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="AudioMeshNode"]
 shape = SubResource("ConcavePolygonShape3D_6fmou")
 
 [node name="Baked mesh" type="MeshInstance3D" parent="AudioMeshNode"]
+transform = Transform3D(0.966308, 0, 0, 0, 0.966308, 0, 0, 0, 0.966308, 0, 0, 0)
 mesh = SubResource("ArrayMesh_6fmou")
 skeleton = NodePath("../..")
 
-[node name="AudioSourceNode" type="Node3D" parent="."]
+[node name="AudioSourceNode" type="AudioSourceNode" parent="."]
+audio_file = "uid://chh4xvc6nafqi"
+loop_audio = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.84842, -6.59833)
+
+[node name="Sprite3D" type="Sprite3D" parent="AudioSourceNode"]
+transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 0, 0)
+billboard = 1
+texture_filter = 1
+texture = ExtResource("2_s3eio")

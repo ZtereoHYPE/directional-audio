@@ -5,9 +5,11 @@ use godot::prelude::*;
 use audio_processor::scene::mesh::Triangle;
 use audio_processor::scene::source::{AudioProvider, AudioSource};
 use audio_processor::scene::source::file::FileAudioProvider;
+use audio_processor::scene::source::frequency::FrequencyAudioProvider;
 use audio_processor::scene::source::quiet::SilentAudioProfider;
 use audio_processor::util::vec3;
 use crate::audio_mesh::AudioMeshNode;
+use crate::to_lib_coords;
 
 pub const AUDIO_SOURCE_GROUP: &str = "AudioSources";
 
@@ -44,7 +46,7 @@ impl AudioSourceNode {
 
         AudioSource::new(
             provider,
-            vec3::from(pos.x, pos.y, pos.z)
+            to_lib_coords(pos)
         )
     }
 }

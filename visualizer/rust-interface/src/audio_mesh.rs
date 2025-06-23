@@ -6,6 +6,7 @@ use godot::obj::{Base, WithBaseField};
 use godot::prelude::*;
 use audio_processor::util::vec3;
 use audio_processor::util::vec3::len;
+use crate::to_lib_coords;
 
 pub const AUDIO_MESH_GROUP: &str = "AudioMeshes";
 
@@ -20,10 +21,6 @@ pub struct AudioMeshNode {
 impl IStaticBody3D for AudioMeshNode {
     fn enter_tree(&mut self) {
         self.base_mut().add_to_group(AUDIO_MESH_GROUP);
-    }
-
-    fn ready(&mut self) {
-
     }
 }
 
@@ -63,7 +60,7 @@ impl AudioMeshNode {
                 let mut mesh_tris = (0..indices.len())
                     .map(|idx| indices.get(idx).unwrap() as usize)
                     .map(|indice| vertices.get(indice).unwrap())
-                    .map(|vertex| vec3::from(vertex.x, vertex.y, vertex.z))
+                    .map(|vertex| to_lib_coords(vertex))
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
@@ -76,7 +73,7 @@ impl AudioMeshNode {
 
                 let mut mesh_tris = (0..vertices.len())
                     .map(|idx| vertices.get(idx).unwrap())
-                    .map(|vertex| vec3::from(vertex.x, vertex.y, vertex.z))
+                    .map(|vertex| to_lib_coords(vertex))
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
