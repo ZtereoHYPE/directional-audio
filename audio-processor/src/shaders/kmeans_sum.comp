@@ -5,11 +5,10 @@ const uint POINT_AMOUNT = 1024;
 const uint SOURCE_AMOUNT = 1;
 const uint KMEANS_CENTROIDS = 8;
 
-
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct Output {
-    vec3 direction;
+    vec3 location;
     float total_distance;
     uint bounces;
     uint source;
@@ -18,7 +17,7 @@ struct Output {
 
 // todo: right now, bounce counts don't affect the instance in any way
 struct Instance {
-    vec3 direction;
+    vec3 location;
     float dist; // in meters
     uint index;
 };
@@ -70,7 +69,7 @@ void main() {
 
         Output output_ = outputs[source_idx * POINT_AMOUNT + point];
         denominators[centroid_]++;
-        tmp_centroids[centroid_] += output_.direction;
+        tmp_centroids[centroid_] += output_.location;
         distances[centroid_] += output_.total_distance;
     }
 
@@ -82,7 +81,7 @@ void main() {
         Instance instance;
         instance.index = source_idx;
         for (int c = 0; c < KMEANS_CENTROIDS; c++) {
-            instance.direction = tmp_centroids[c] / float(denominators[c]);
+            instance.location = tmp_centroids[c] / float(denominators[c]);
             instance.dist = distances[c] / float(denominators[c]);
 
             instances[source_idx * KMEANS_CENTROIDS + c] = instance;

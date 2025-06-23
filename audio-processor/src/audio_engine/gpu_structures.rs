@@ -25,16 +25,18 @@ pub(crate) struct FftConstants {
 }
 
 
-pub(crate) struct FftBuffer();
+pub(crate) struct FftBuffer {
+    pub windows: [GpuWindow; MAX_INSTANCES]
+}
 
 impl FftBuffer {
     pub(crate) fn max_size() -> usize {
-        MAX_SOURCES * GPU_WINDOW_SIZE * size_of::<Vec2>()
+        MAX_INSTANCES * GPU_WINDOW_SIZE * size_of::<Vec2>()
     }
 }
 
 
-pub(crate) const MAX_SOURCES: usize = 2;
+pub(crate) const MAX_SOURCES: usize = 1;
 
 /// Represents a single audio frame on the GPU
 pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];

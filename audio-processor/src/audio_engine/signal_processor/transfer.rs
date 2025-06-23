@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES, MAX_SOURCES};
+use crate::audio_engine::gpu_structures::{DownloadBuffer, FftBuffer, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES, MAX_SOURCES};
 use crate::audio_engine::GpuData;
 use crate::scene::source::FRAME_SIZE;
 use crate::scene::Scene;
@@ -49,12 +49,12 @@ impl TransferModule {
         let mut clear_frames: Vec<DeviceSize> = vec![];
         
         let mut sources = &mut scene.sources;
-        let delay_buffer_offset = ((frame_counter + MAX_DELAY_FRAMES - 1) % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>();
+        let delay_buffer_offset = (frame_counter % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>() ; // start at 0
 
         // copy frame to cpu buffer, keeping track of which regions are actually updated
         let mut stream_buffer = UploadBuffer::from_memory_map(self.cpu_buffer_maps[0]);
         for idx in 0..MAX_SOURCES {
-            let destination = idx * MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>() + delay_buffer_offset;
+            let destination = idx * (MAX_DELAY_FRAMES * FRAME_SIZE * size_of::<Vec2>()) + delay_buffer_offset;
             let mut has_data = false;
             if (idx < sources.len()) {
                 has_data = sources[idx].provider.next_frame(&mut stream_buffer.frames[idx]);
@@ -113,18 +113,18 @@ impl TransferModule {
         );
     }
 
-    pub unsafe fn download_upload_buf(&mut self, command_buffer: &mut CommandBuffer, src: &Buffer) -> Box<UploadBuffer> {
+    pub unsafe fn download_upload_buf(&mut self, command_buffer: &mut CommandBuffer, src: &Buffer) -> Box<FftBuffer> {
         self.device
             .reset_fences(from_ref(&self.fence))
             .expect("Failed to reset fence");
 
         let region = BufferCopy::default()
-            .size(UploadBuffer::max_size() as _);
+            .size(FftBuffer::max_size() as _);
 
         self.device.cmd_copy_buffer(
             *command_buffer,
             *src,
-            self.cpu_buffers[0],
+            self.cpu_buffers[1],
             from_ref(&region)
         );
 
@@ -144,10 +144,10 @@ impl TransferModule {
             .expect("Failed to wait for fence!");
 
         self.allocator
-            .invalidate_allocation(&self.cpu_buffer_memories[0], 0, WHOLE_SIZE)
+            .invalidate_allocation(&self.cpu_buffer_memories[1], 0, WHOLE_SIZE)
             .expect("Failed to invalidate allocation");
 
-        copy_to_box(self.cpu_buffer_maps[0] as *const UploadBuffer)
+        copy_to_box(self.cpu_buffer_maps[1] as *const FftBuffer)
     }
 
     // todo: this could be made a bit more efficient if only the relevant part of the frame is copied. This would involve perfoming the FFT here.
@@ -185,8 +185,7 @@ impl TransferModule {
             .invalidate_allocation(&self.cpu_buffer_memories[1], 0, WHOLE_SIZE)
             .expect("Failed to invalidate allocation");
 
-        DownloadBuffer::from_memory_map(self.cpu_buffer_maps[1])
-            .get_windows()
+        DownloadBuffer::from_memory_map(self.cpu_buffer_maps[1]).get_windows()
     }
 }
 

@@ -11,7 +11,7 @@ const float SOUND_SPEED = 340.29;
 
 // max delay in samples is: buf size - cpu pipeline (can't read where its being uploaded) - window size (the whole window needs to be valid)
 const uint MAX_DELAY = BUFFER_SIZE - (PIPELINE_SIZE * FRAME_SIZE) - WINDOW_SIZE;
-const uint INITIAL_OFFSET = BUFFER_SIZE - WINDOW_SIZE; // in order to have an empty buffer (sound start can be delayed)
+const uint INITIAL_OFFSET = -(WINDOW_SIZE - 0*FRAME_SIZE) + BUFFER_SIZE; // start WINDOW_SIZE - FRAME_SIZE before 0 (wraps around adding BUFFER_SIZE)
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -46,7 +46,7 @@ uint delayed_index(float dist, uint instance_idx) {
     uint zero_delay_start_idx = frame_idx * FRAME_SIZE + INITIAL_OFFSET; // no % DELAY_BUFFER_SIZE because it's handled later
     float delay = dist / SOUND_SPEED;
 
-    uint samples_delay = uint(delay * float(FRAME_SIZE) / SAMPLING_RATE);
+    uint samples_delay = uint(delay / (float(FRAME_SIZE) / SAMPLING_RATE));
     uint clamped_delay = uint(min(samples_delay, MAX_DELAY));
 
     // the start value is: zero delay idx - delay % buffer size. Buffer size is added to avoid negatives.
@@ -63,7 +63,7 @@ void main() {
     float corrected_dist = instance.dist - length(instance.direction) + length(corrected_dir);
 
     // If we are the first invocation for an instance, save it
-    if (gl_GlobalInvocationID.y == 0) {
+    if (gl_GlobalInvocationID.x == 0) {
         instances[gl_GlobalInvocationID.y].direction = corrected_dir;
         instances[gl_GlobalInvocationID.y].dist = corrected_dist;
     }

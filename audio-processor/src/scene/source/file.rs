@@ -24,7 +24,7 @@ impl FileAudioProvider {
             .map(|chunk|
                 chunk
                     .iter()
-                    .map(|&s| f32::from(s))
+                    .map(|&s| s as f32 / i16::MAX as f32)
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap()

@@ -8,7 +8,7 @@ pub struct FrequencyAudioProvider {
 }
 
 impl FrequencyAudioProvider {
-    pub(crate) fn new(frequency: f32) -> Self {
+    pub fn new(frequency: f32) -> Self {
         Self {
             frequency,
             phase: 0.0
@@ -19,7 +19,7 @@ impl FrequencyAudioProvider {
 impl AudioProvider for FrequencyAudioProvider {
     fn next_frame(&mut self, frame: &mut GpuFrame) -> bool {
         for idx in 0..frame.len() {
-            frame[idx].x = self.phase.sin() * 100.0;
+            frame[idx].x = self.phase.sin();
             frame[idx].y = 0.0;
             self.phase += 2.0 * PI * (self.frequency / 44100.0);
         }

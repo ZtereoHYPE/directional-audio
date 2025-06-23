@@ -58,7 +58,6 @@ impl FftModule {
         }
     }
 
-    // todo: this can be HEAVILY optimized to run on the same dispatch with in-shader barriers!
     pub unsafe fn gpu_fourier_transform(&mut self, command_buffer: &mut CommandBuffer, initial_buffer: u32, inverse: bool, instance_amt: usize) -> u32 {
         for (idx, stage) in self.stages.iter().enumerate() {
             let workgroups = (GPU_WINDOW_SIZE as u32 / (stage.radix * 32), instance_amt as u32);
@@ -83,7 +82,6 @@ impl FftModule {
                 workgroups.0, workgroups.1, 1
             );
 
-            // todo: might want to optimize this a little by using a buffer_memory_barrier instead
             let memory_barrier = MemoryBarrier::default()
                 .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches
                 .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
@@ -139,14 +137,14 @@ impl FftModule {
 
     pub(crate) fn local_fourier_transform(buffer: Vec<Vec2>, inverse: bool) -> Vec<Vec2> {
         let len = buffer.len();
-        if (len & (len - 1)) != 0 {
+        if !len.is_power_of_two() {
             panic!("This function can only be called on buffers whose length is a power of two")
         }
 
         let w = if inverse {
-            root_of_unity(-(len as isize))
-        } else {
             root_of_unity(len as isize)
+        } else {
+            root_of_unity(-(len as isize))
         };
 
         let mut result = Self::cpu_fft(buffer, w);
@@ -176,8 +174,9 @@ impl FftModule {
         let mut x = Vec2 {x: 1.0, y: 0.0};
 
         for idx in 0..half {
-            buffer[idx       ] = complex::sum(left[idx], complex::mult(x, right[idx]));
-            buffer[idx + half] = complex::sub(left[idx], complex::mult(x, right[idx]));
+            let multiplied_right = complex::mult(x, right[idx]);
+            buffer[idx       ] = complex::sum(left[idx], multiplied_right);
+            buffer[idx + half] = complex::sub(left[idx], multiplied_right);
             x = complex::mult(x, w);
         }
 

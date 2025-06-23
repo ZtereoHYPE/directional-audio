@@ -15,7 +15,7 @@ layout(constant_id = 4) const float MAX_ELEVATION = 0;
 
 layout(constant_id = 5) const float SAMPLING_RATE = 44100;
 
-layout(constant_id = 6) const float INSTANCES = 2;
+layout(constant_id = 6) const float INSTANCES = 1;
 
 
 // x = frequency, y = source
@@ -124,17 +124,15 @@ void main() {
     
     vec2 Xk = vec2(samples[sample_idx + fft_offset]);
 //    float frequency = float(idx) / WINDOW_SIZE * SAMPLING_RATE;
-//    Xk *= attenuation(frequency, 10000);
+//    Xk *= attenuation(frequency, dist);
 
-//    vec2 attenuated_left = Xk / 100000.0;
-//    vec2 attenuated_right = Xk / 100000.0;
-    vec2 attenuated_left = complex_mult(Xk, left_hrtf) / 100000.0;
-    vec2 attenuated_right = complex_mult(Xk, right_hrtf) / 100000.0;
+    vec2 attenuated_left = complex_mult(Xk, left_hrtf);
+    vec2 attenuated_right = complex_mult(Xk, right_hrtf);
 
     // todo: for now we only support up to 64 (AMD) and 32 (NVIDIA) audio sources! Work around this!
     vec2 subgroup_left_sum = subgroupAdd(attenuated_left);
     vec2 subgroup_right_sum = subgroupAdd(attenuated_right);
-    
+
     if (subgroupElect()) {
         leftOutput[sample_idx] += subgroup_left_sum;
         rightOutput[sample_idx] += subgroup_right_sum;
