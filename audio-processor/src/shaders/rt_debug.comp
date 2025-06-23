@@ -1,0 +1,35 @@
+#version 460
+
+const uint SOURCE_AMOUNT = 1;
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Instance {
+    vec3 direction;
+    float dist; // in meters
+    uint index;
+};
+
+layout(std430, push_constant) uniform Camera {
+    vec3 origin;
+} camera;
+
+layout(std430, binding = 0) readonly buffer SourceLocations {
+    vec3 sources[];
+};
+
+layout(std430, binding = 1) writeonly restrict buffer AudioInstances {
+    Instance instances[];
+};
+
+void main() {
+    uint source_idx = gl_GlobalInvocationID.x;
+    if (source_idx >= SOURCE_AMOUNT)
+        return;
+
+    vec3 source = sources[source_idx];
+
+    instances[source_idx].direction = source - camera.origin;
+    instances[source_idx].dist = length(source - camera.origin);
+    instances[source_idx].index = source_idx;
+}

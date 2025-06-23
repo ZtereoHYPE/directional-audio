@@ -1,7 +1,7 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 
 use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{GpuFrame, InstanceBuffer};
+use crate::audio_engine::gpu_structures::{GpuFrame, GpuWindow, InstanceBuffer};
 use crate::audio_engine::ray_tracer::RayTracer;
 use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::source::{Frame, FRAME_SIZE};
@@ -184,7 +184,8 @@ impl AudioEngine {
 
     pub(crate) fn process_frames(&mut self) -> (Frame, Frame) {
         unsafe {
-            self.ray_tracer.trace_rays(&self.scene);
+            // self.ray_tracer.trace_rays(&self.scene);
+            self.ray_tracer.copy_sources_debug(&self.scene);
 
             let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
             let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
@@ -208,6 +209,27 @@ impl AudioEngine {
             )
         }
     }
+
+    // pub(crate) fn get_fft(&mut self) -> (GpuWindow, GpuWindow) {
+    //     unsafe {
+    //         // self.ray_tracer.trace_rays(&self.scene);
+    //         self.ray_tracer.copy_sources_debug(&self.scene);
+    // 
+    //         let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
+    //         let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
+    // 
+    //         self.buffer_initializer.copy_buffer(
+    //             &self.device,
+    //             self.compute_queue,
+    //             &mut src_audio_instances,
+    //             &mut dst_audio_instances,
+    //             InstanceBuffer::max_size() as DeviceSize
+    //         );
+    // 
+    //         let last_rt_pos = self.ray_tracer.get_last_rt_pos();
+    //         self.signal_processor.get_fft(&mut self.scene, last_rt_pos)
+    //     }
+    // }
 
     pub(crate) fn update_listener(&mut self, new_location: Vec3) {
         self.scene.listener.location = new_location;

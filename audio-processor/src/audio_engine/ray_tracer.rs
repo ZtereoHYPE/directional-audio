@@ -12,9 +12,11 @@ use crevice::std430::Vec3;
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
+use crate::audio_engine::ray_tracer::debug::DebugRayModule;
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
+mod debug;
 
 pub(crate) struct RayTracer {
     device: Device,
@@ -29,6 +31,7 @@ pub(crate) struct RayTracer {
 
     ray_module: RayModule,
     cluster_module: KMeansModule,
+    debug_module: DebugRayModule,
 
     last_rt_pos: Vec3
 }
@@ -263,7 +266,7 @@ impl RayTracer {
             async_queue.0
         );
 
-        let kmeans_module = KMeansModule::new(
+        let cluster_module = KMeansModule::new(
             device.clone(),
             descriptor_pool,
             rt_output_buffer,
@@ -271,6 +274,14 @@ impl RayTracer {
             neighbours_buffer,
             instance_buffer,
             async_queue.0,
+        );
+
+        let debug_module = DebugRayModule::new(
+            device.clone(),
+            descriptor_pool,
+            sources_buffer,
+            instance_buffer,
+            async_queue.0
         );
 
         let last_rt_pos = scene.listener.location;
@@ -287,8 +298,9 @@ impl RayTracer {
             fence,
 
             ray_module,
-            cluster_module: kmeans_module,
-
+            cluster_module,
+            debug_module,
+            
             last_rt_pos,
         }
     }
@@ -330,6 +342,56 @@ impl RayTracer {
 
         // Cluster the rays with kmeans
         self.cluster_module.cluster_rays(&mut self.command_buffer, MAX_SOURCES as u32);
+
+        // Submit the command buffer
+        self.device
+            .end_command_buffer(self.command_buffer)
+            .expect("Failed to end command buffer!");
+
+        let submit_info = SubmitInfo::default()
+            .command_buffers(from_ref(&self.command_buffer));
+
+        self.device
+            .queue_submit(self.async_queue.0, &[submit_info], self.fence)
+            .expect("Failed to submit command buffer");
+
+        // Wait for it to execute
+        self.device
+            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
+            .expect("Failed to wait for fence!");
+
+        self.last_rt_pos = last_rt_pos; // update it only once it's fully done
+    }
+
+    pub(super) unsafe fn copy_sources_debug(&mut self, scene: &Scene) {
+        let last_rt_pos = scene.listener.location;
+        self.device
+            .reset_fences(from_ref(&self.fence))
+            .expect("Failed to reset raytracer fence!");
+
+        // Begin the command buffer
+        self.device
+            .reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())
+            .expect("Failed to reset command buffer");
+
+        let begin_info = CommandBufferBeginInfo::default()
+            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        self.device
+            .begin_command_buffer(self.command_buffer, &begin_info)
+            .expect("Failed to begin command buffer recording");
+
+        // Stage the new coordinates
+        SourcesBuffer::from_memory_map(self.staging_sources_map).copy_coordinates(scene);
+
+        // todo: invalidate the allocation
+
+        // Copy from staging buffer
+        let region = BufferCopy::default().size(SourcesBuffer::max_size() as DeviceSize);
+        self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
+
+        // Trace the rays
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos);
 
         // Submit the command buffer
         self.device

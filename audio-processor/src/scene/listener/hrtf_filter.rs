@@ -1,9 +1,10 @@
 use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::GpuData;
-use crevice::std430::Vec2;
+use crevice::std430::{Vec2, Vec3};
 use crevice::std430::Vec4;
 use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
+use crate::util::vec3;
 
 #[derive(Clone)]
 pub struct HrtfOptions {
@@ -135,7 +136,17 @@ fn polar_to_cartesian_3d(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
     )
 }
 
+pub fn cartesian_to_polar(cartesian: Vec3) -> Vec2 {
+    let radius = vec3::len(cartesian);
+
+    Vec2 {
+        x: f32::acos(cartesian.z / radius) / (PI - 0.0) - 0.0,
+        y: f32::atan2(cartesian.y, cartesian.x) / (2.0 * PI),
+    }
+}
+
 // todo: perform log interpolation
+// todo: move this to the complex module
 fn cartesian_to_linear_polar(cartesian: Vec2) -> Vec4 {
     // done in f64 to avoid as much precision loss as possible
     let x = cartesian.x as f64;

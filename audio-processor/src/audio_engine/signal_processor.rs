@@ -214,8 +214,8 @@ impl SignalProcessor {
                 let inverse = false;
 
                 // Populate the UBO
-                let direction: f32 = if inverse { -1.0 } else { 1.0 };
-                let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32}; // todo: i flipped these, make sure that was a right decision
+                let direction: f32 = if !inverse { -1.0 } else { 1.0 };
+                let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32};
                 let data = FftUbo {
                     split_size: stage.split_size,
                     radix_stride: stage.stride,
@@ -979,6 +979,32 @@ impl SignalProcessor {
             GpuFrame::try_from(&right[start..end]).unwrap(),
         )
     }
+
+    // pub unsafe fn get_fft(&mut self, scene: &mut Scene, last_rt_pos: Vec3) -> (GpuWindow, GpuWindow) {
+    //     // transfer data to right buffer
+    //     self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, scene, &self.delay_buffer, self.counter);
+    // 
+    //     // move the delayed windows to the fft buffer
+    //     let camera_delta = vec3::sub(scene.listener.location, last_rt_pos);
+    //     self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, MAX_SOURCES);
+    //     self.counter += 1;
+    // 
+    //     let pre_fft_buffer = self.transfer_module.download_upload_buf(&mut self.compute_command_buffer, &self.fft_gpu_buffers[0]);
+    // 
+    //     self.transfer_module.upload_new_frames(&mut self.compute_command_buffer, scene, &self.delay_buffer, self.counter);
+    // 
+    //     // move the delayed windows to the fft buffer
+    //     let camera_delta = vec3::sub(scene.listener.location, last_rt_pos);
+    //     self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, MAX_SOURCES);
+    //     self.counter += 1;
+    // 
+    //     // perform fourier transform
+    //     self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_SOURCES);
+    // 
+    //     let fft_buffer = self.transfer_module.download_upload_buf(&mut self.compute_command_buffer, &self.fft_gpu_buffers[0]);
+    // 
+    //     (pre_fft_buffer.windows[0], fft_buffer.windows[0])
+    // }
 
     pub(super) fn get_instance_buffer(&self) -> Buffer {
         self.instance_buffer

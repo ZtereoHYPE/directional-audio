@@ -30,4 +30,8 @@ impl AudioSource {
     pub fn update_location(&mut self, coordinates: Vec3) {
         self.coordinates = coordinates;
     }
+    
+    pub fn location(&self) -> Vec3 {
+        self.coordinates
+    }
 }

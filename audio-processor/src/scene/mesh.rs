@@ -39,6 +39,10 @@ pub(crate) struct TriangleBuffer(Vec<Triangle>);
 
 impl GpuData for TriangleBuffer {
     unsafe fn serialize(&self, dst: *mut u8) {
+        if self.0.is_empty() {
+            return;
+        }
+
         std::ptr::copy_nonoverlapping(
             (&self.0[..] as *const [Triangle]).cast(),
             dst,
@@ -47,7 +51,7 @@ impl GpuData for TriangleBuffer {
     }
 
     fn size(&self) -> usize {
-        size_of::<Triangle>() * self.0.len()
+        size_of::<Triangle>() * self.0.len() // should not be 0 to avoid crashes
     }
 }
 
