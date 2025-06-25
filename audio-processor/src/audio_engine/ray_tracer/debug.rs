@@ -1,7 +1,7 @@
 use crate::audio_engine::read_file_words;
 use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
-use crevice::std430::Vec3;
+use crevice::std430::{Mat3, Vec3};
 use std::array::from_ref;
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
@@ -85,7 +85,7 @@ impl DebugRayModule {
         let (pipeline, pipeline_layout) = unsafe {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(12);
+                .size(64);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .set_layouts(from_ref(&descriptor_set_layout))
@@ -130,7 +130,7 @@ impl DebugRayModule {
         }
     }
 
-    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3) {
+    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, rotation: Mat3) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -153,6 +153,15 @@ impl DebugRayModule {
             0,
             core::slice::from_raw_parts((&origin as *const Vec3) as *const u8, size_of::<Vec3>())
         );
+
+        self.device.cmd_push_constants(
+            *command_buffer,
+            self.pipeline_layout,
+            ShaderStageFlags::COMPUTE,
+            16,
+            core::slice::from_raw_parts((&rotation as *const Mat3) as *const u8, size_of::<Mat3>())
+        );
+
 
         let x_workgroups = (source_amt + 63) / 64; // rounds up
         self.device.cmd_dispatch(*command_buffer, x_workgroups, 1, 1);

@@ -9,7 +9,7 @@ use crate::scene::Scene;
 use ash::ext::debug_utils;
 use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
-use crevice::std430::{Vec2, Vec3};
+use crevice::std430::{Mat3, Vec2, Vec3};
 use std::array::from_ref;
 use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
@@ -231,8 +231,9 @@ impl AudioEngine {
     //     }
     // }
 
-    pub(crate) fn update_listener(&mut self, new_location: Vec3) {
+    pub(crate) fn update_listener(&mut self, new_location: Vec3, new_rotation: Mat3) {
         self.scene.listener.location = new_location;
+        self.scene.listener.rotation = new_rotation;
     }
 
     pub(crate) fn update_sources(&mut self, new_locations: Vec<(usize, Vec3)>) {

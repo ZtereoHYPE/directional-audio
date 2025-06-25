@@ -13,14 +13,14 @@ use godot::classes::IAudioStream;
 use godot::private::callbacks::to_string;
 use audio_processor;
 use audio_processor::AudioEngineMonitor;
-use audio_processor::scene::listener::hrtf_filter::{cartesian_to_polar, HrtfOptions};
+use audio_processor::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
 use audio_processor::scene::mesh::Triangle;
 use audio_processor::scene::Scene;
 use audio_processor::scene::source::{AudioSource, FRAME_SIZE};
-use audio_processor::util::vec3;
+use audio_processor::util::{rotation_matrix, vec3};
 use crate::audio_mesh::{AudioMeshNode, AUDIO_MESH_GROUP};
 use crate::audio_source::{AudioSourceNode, AUDIO_SOURCE_GROUP};
-use crate::to_lib_coords;
+use crate::to_vec;
 
 #[derive(GodotClass)]
 #[class(base=Node3D)]
@@ -33,6 +33,7 @@ pub struct AudioListenerNode {
     accumulated_samples: Vec<Vector2>,
 
     last_position: Vector3,
+    last_rotation: Vector3,
     audio_stream_player: Gd<AudioStreamPlayer>, // warning: never gets free'd
 
     audio_engine: Option<AudioEngineMonitor>,
@@ -58,13 +59,14 @@ impl INode3D for AudioListenerNode {
             accumulated_samples: vec![],
             audio_stream_player,
             last_position: Vector3::ZERO,
+            last_rotation: Vector3::ZERO,
             audio_engine: None,
             base
         }
     }
 
     // Gets called every frame
-    fn process(&mut self, delta: f64) {
+    fn process(&mut self, _: f64) {
         if self.audio_engine.is_none() {
             return;
         }
@@ -98,13 +100,15 @@ impl INode3D for AudioListenerNode {
 
         // Update listener location
         let position = self.base().get_global_position();
-        if position != self.last_position {
+        let rotation = self.base().get_global_rotation();
+        if position != self.last_position || rotation != self.last_rotation {
             self.last_position = position;
-            engine.update_listener(to_lib_coords(position));
+            self.last_rotation = rotation;
+
+            engine.update_listener(to_vec(position), rotation_matrix(rotation.x, rotation.y));
         }
 
         // todo: process the audio sources' new positions
-
     }
 
     fn enter_tree(&mut self) {
@@ -164,24 +168,19 @@ impl INode3D for AudioListenerNode {
         let filter_options = HrtfOptions {
             azimuth_samples: 90, // one every 2 deg
             elevation_samples: 45, // one every 2 deg
-            elevation_max: 0.0, // full sphere was captured
-            elevation_min: PI, // "
+            elevation_top: 0.0, // full sphere was captured
+            elevation_bottom: PI, // "
             sampling_rate: 44100.0
         };
 
-        {
-            let relative_pos = vec3::sub(audio_sources[0].location(), to_lib_coords(self.base().get_global_position()));
-            print!("relatively speaking, {} {} {}", relative_pos.x, relative_pos.y, relative_pos.z);
-            let polar = cartesian_to_polar(relative_pos);
-            println!("; in polar: {:?}", polar);
-        }
+        godot_print!("Creating filter!");
+        let filter = HrtfFilter::new(filter_options, &hrtf_path);
 
         godot_print!("Creating scene!");
         let scene = Scene::new(
             audio_sources,
             triangles,
-            &hrtf_path,
-            filter_options
+            filter
         );
 
         godot_print!("Creating engine!");

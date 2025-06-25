@@ -1,14 +1,16 @@
+use crevice::internal::bytemuck::Zeroable;
+use crevice::std430::Mat3;
 use crate::scene::listener::AudioListener;
 use crate::scene::mesh::{SceneMesh, Triangle};
 use crate::scene::source::AudioSource;
-use crate::util::vec3;
+use crate::util::{complex, vec3};
 use crevice::std430::Vec3;
-use crate::scene::listener::hrtf_filter::HrtfOptions;
+use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
+use crate::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
 
 pub mod source;
 pub mod listener;
 pub mod mesh;
-pub(crate) mod bvh;
 
 pub struct Scene {
     pub(crate) mesh: SceneMesh,
@@ -18,11 +20,11 @@ pub struct Scene {
 
 impl Scene {
     // todo: simplify this a bunch to take in a filter and SceneMesh should be gone and the scene itself should hold the triangles and the BVH probably
-    pub fn new(sources: Vec<AudioSource>, triangles: Vec<Triangle>, hrtf_filter: &str, hrtf_options: HrtfOptions) -> Self {
+    pub fn new(sources: Vec<AudioSource>, triangles: Vec<Triangle>, hrtf_filter: HrtfFilter) -> Self {
         Self {
             mesh: SceneMesh::from_triangles(triangles),
             sources,
-            listener: AudioListener::new(vec3::from(0.0, 0.0, 0.0), hrtf_filter, hrtf_options)
+            listener: AudioListener::new(Vec3::zeroed(), Mat3::zeroed(), hrtf_filter)
         }
     }
 

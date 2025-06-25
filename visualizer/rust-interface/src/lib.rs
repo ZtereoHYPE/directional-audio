@@ -11,6 +11,6 @@ struct AudioVisualization;
 #[gdextension]
 unsafe impl ExtensionLibrary for AudioVisualization {}
 
-pub fn to_lib_coords(vec: Vector3) -> Vec3 {
-    vec3::from(vec.x, -vec.z, vec.y)
+pub fn to_vec(vec: Vector3) -> Vec3 {
+    vec3::from(vec.x, vec.y, vec.z)
 }

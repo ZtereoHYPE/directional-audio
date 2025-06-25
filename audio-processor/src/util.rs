@@ -1,3 +1,7 @@
+use crevice::internal::bytemuck::Zeroable;
+use crevice::std140::Vec3;
+use crevice::std430::Mat3;
+
 #[derive(Copy, Clone)]
 pub(crate) enum Axis {
     X,
@@ -6,8 +10,9 @@ pub(crate) enum Axis {
 }
 
 pub mod vec3 {
-    use crate::util::Axis;
-    use crevice::std430::Vec3;
+    use std::f32::consts::PI;
+    use crate::util::{vec3, Axis};
+    use crevice::std430::{Vec2, Vec3};
 
     pub const MAX_VEC3: Vec3 = Vec3 {x: 1e30, y: 1e30, z: 1e30};
     pub const MIN_VEC3: Vec3 = Vec3 {x: -1e30, y: -1e30, z: -1e30};
@@ -68,10 +73,34 @@ pub mod vec3 {
     pub fn len(vector: Vec3) -> f32 {
         (vector.x * vector.x + vector.y * vector.y + vector.z * vector.z).sqrt()
     }
+
+    /// elevation is 0..PI where 0 is the top and PI is the bottom
+    /// azimuth is -PI..PI
+    pub fn from_unit_polar(azimuth: f32, elevation: f32) -> Vec3 {
+        Vec3 {
+            x: elevation.sin() * azimuth.cos(),
+            y: elevation.cos(),
+            z: elevation.sin() * -azimuth.sin(),
+        }
+    }
+
+    pub fn to_unit_polar(cartesian: Vec3) -> Vec2 {
+        let radius = len(cartesian);
+
+        Vec2 {
+            x: f32::atan2(-cartesian.z, cartesian.x), // azimuth
+            y: f32::acos(cartesian.y / radius), // elevation
+        }
+    }
 }
 
+// newtype pattern for types
+// struct GodotCoords([f32; 3]);
+// struct UnitPolarCoords([f32; 2]);
+// struct Complex(f32, f32);
+
 pub mod complex {
-    use crevice::std430::Vec2;
+    use crevice::std430::{Vec2, Vec4};
     use std::f32::consts::PI;
 
     pub fn from(x: f32, y: f32) -> Vec2 {
@@ -114,12 +143,40 @@ pub mod complex {
         }
     }
 
-    pub fn magnitude(complex: Vec2) -> f32 {
+    pub fn amplitude(complex: Vec2) -> f32 {
         (complex.x * complex.x + complex.y * complex.y).sqrt()
     }
 
     pub fn phase(complex: Vec2) -> f32 {
         f32::atan2(complex.y, complex.x)
+    }
+
+    // todo: perform log interpolation
+    // todo: perhaps find even accurater way
+    pub fn to_linear_polar(cartesian: Vec2) -> Vec4 {
+        // done in f64 to avoid as much precision loss as possible
+        let x = cartesian.x as f64;
+        let y = cartesian.y as f64;
+        let mag = f64::sqrt(x * x + y * y);
+
+        Vec4 {
+            x: mag as f32,
+            y: (x / mag) as f32,
+            z: (y / mag) as f32,
+            w: 0.0 // because RGB is much less supported than RGBA
+        }
+    }
+
+    pub fn from_linear_polar(polar: Vec4) -> Vec2 {
+        let x = polar.y;
+        let y = polar.z;
+        let len = (x * x + y * y).sqrt();
+        let normalized = Vec2 { x: x / len, y: y / len };
+
+        Vec2 {
+            x: normalized.x * polar.x,
+            y: normalized.y * polar.x,
+        }
     }
 }
 
@@ -193,7 +250,8 @@ mod vec3_tests {
 
 #[cfg(test)]
 mod complex_tests {
-    use crevice::std430::Vec2;
+    use std::f32::consts::PI;
+    use crevice::std430::{Vec2, Vec4};
     use crate::util::complex;
 
     #[test]
@@ -235,7 +293,7 @@ mod complex_tests {
     #[test]
     fn test_magnitude() {
         let a = Vec2 { x: 3.0, y: 4.0 };
-        let result = complex::magnitude(a);
+        let result = complex::amplitude(a);
         assert!((result - 5.0).abs() < 1e-6);
     }
 
@@ -254,16 +312,55 @@ mod complex_tests {
     fn test_root_of_unity() {
         let len = 8;
         let result = complex::root_of_unity(len as isize);
-        let expected_x = (2.0 * std::f32::consts::PI / len as f32).cos();
-        let expected_y = (2.0 * std::f32::consts::PI / len as f32).sin();
+        let expected_x = (2.0 * PI / len as f32).cos();
+        let expected_y = (2.0 * PI / len as f32).sin();
         assert!((result.x - expected_x).abs() < 1e-6, "Expected x to be {}, got {}", expected_x, result.x);
         assert!((result.y - expected_y).abs() < 1e-6, "Expected y to be {}, got {}", expected_y, result.y);
 
         let len = -8;
         let result = complex::root_of_unity(len as isize);
-        let expected_x = (2.0 * std::f32::consts::PI / len as f32).cos();
-        let expected_y = (2.0 * std::f32::consts::PI / len as f32).sin();
+        let expected_x = (2.0 * PI / len as f32).cos();
+        let expected_y = (2.0 * PI / len as f32).sin();
         assert!((result.x - expected_x).abs() < 1e-6, "Expected x to be {}, got {}", expected_x, result.x);
         assert!((result.y - expected_y).abs() < 1e-6, "Expected y to be {}, got {}", expected_y, result.y);
     }
+
+    #[test]
+    fn test_linear_polar_interpolation() {
+        let vec1 = complex::from(10.0 * (5.0 * PI / 6.0).cos(), 10.0 * (5.0 * PI / 6.0).sin());
+        let vec2 = complex::from(5.0 * (0.0_f32).cos(), 5.0 * (0.0_f32).sin());
+        let polar1 = complex::to_linear_polar(vec1); // amplitude 10, phase π/3
+        let polar2 = complex::to_linear_polar(vec2); // amplitude 5, phase 0
+
+        // 25/75 linear interpolation
+        let amplitude = (10.0 * 0.25 + 5.0 * 0.75);
+        let phase = 5.0 * PI / 6.0 * 0.25 + 0.0;
+        let expected = complex::from(amplitude * phase.cos(), amplitude * phase.sin());
+        let result = complex::from_linear_polar(
+            Vec4 {
+                x: (polar1.x * 0.25 + polar2.x * 0.75),
+                y: (polar1.y * 0.25 + polar2.y * 0.75),
+                z: (polar1.z * 0.25 + polar2.z * 0.75),
+                w: 0.0,
+            }
+        );
+
+        let simple_lerp = complex::sum(complex::scalar_mult(vec1, 0.25), complex::scalar_mult(vec2, 0.75));
+
+        println!("expected {} {}, linear_polar {} {}, straight up lerp {} {}",
+            amplitude, phase,
+            complex::amplitude(result), complex::phase(result),
+            complex::amplitude(simple_lerp), complex::phase(simple_lerp)
+        );
+    }
+}
+
+pub fn rotation_matrix(pitch: f32, yaw: f32) -> Mat3 {
+    let mut mat = Mat3::zeroed();
+
+    mat.x = vec3::from(yaw.cos(), 0.0, yaw.sin() * pitch.cos());
+    mat.y = vec3::from(0.0, pitch.cos(), -pitch.sin());
+    mat.z = vec3::from(-yaw.sin(), pitch.sin(), yaw.cos() * pitch.cos());
+
+    mat
 }

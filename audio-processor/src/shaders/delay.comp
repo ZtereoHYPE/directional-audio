@@ -1,4 +1,5 @@
 #version 460
+#include "imports/utils.comp"
 
 // todo: look into sharing constant indices maybe? Such that only one constant buffer can be used
 layout(constant_id = 0) const int WINDOW_SIZE = 1024;
@@ -14,14 +15,6 @@ const uint MAX_DELAY = BUFFER_SIZE - (PIPELINE_SIZE * FRAME_SIZE) - WINDOW_SIZE;
 const uint INITIAL_OFFSET = -(WINDOW_SIZE - 0*FRAME_SIZE) + BUFFER_SIZE; // start WINDOW_SIZE - FRAME_SIZE before 0 (wraps around adding BUFFER_SIZE)
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
-
-
-struct Instance {
-    vec3 direction;
-    float dist; // in meters
-    uint index;
-};
-
 
 layout(push_constant, std430) uniform Camera {
     vec3 camera_delta;

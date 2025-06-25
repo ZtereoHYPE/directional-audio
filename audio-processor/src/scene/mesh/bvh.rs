@@ -89,7 +89,7 @@ impl<'a> BvhBuilder<'a> {
     /// are reordered using an index array during the construction of the BVH to avoid
     /// excessive memory writes.
     /// Motion blur is applied as an additional step.
-    pub(crate) fn build(mut self) -> Vec<BvhNode> {
+    pub(crate) fn build(mut self) -> BvhBuffer {
         // Create triangle index list with linear sequence (0,1,2...)
         let mut indices: Vec<_> = (0..self.triangles.len() as u32).collect();
 
@@ -102,7 +102,7 @@ impl<'a> BvhBuilder<'a> {
         // Apply the resulting index ordering to the triangles
         Self::apply_ordering(&mut self.triangles, &indices);
 
-        self.bvh_list
+        BvhBuffer(self.bvh_list)
     }
 
     /// Builds the BVH by recursively performing the following steps:

@@ -9,7 +9,7 @@ use crate::scene::source::file::FileAudioProvider;
 use crate::scene::source::{AudioSource, Frame, FRAME_SIZE};
 use crate::scene::Scene;
 use crate::util::vec3;
-use crevice::std430::Vec3;
+use crevice::std430::{Mat3, Vec3};
 use plotters::prelude::*;
 use std::error::Error;
 use std::mem::take;
@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 enum Message {
     Terminate,
-    UpdateListener(Vec3),
+    UpdateListener(Vec3, Mat3),
     UpdateSources(Vec<(usize, Vec3)>)
 }
 
@@ -51,8 +51,8 @@ impl AudioEngineMonitor {
         }
     }
 
-    pub fn update_listener(&self, listener: Vec3) {
-        self.msg_tx.send(Message::UpdateListener(listener)).unwrap()
+    pub fn update_listener(&self, pos: Vec3, rot: Mat3) {
+        self.msg_tx.send(Message::UpdateListener(pos, rot)).unwrap()
     }
 
     pub fn update_sources(&self, sources: Vec<(usize, Vec3)>) {
@@ -71,7 +71,7 @@ impl AudioEngineMonitor {
     fn vulkan_thread_job(mut engine: AudioEngine, msg_rx: Receiver<Message>, frame_tx: Sender<(Frame, Frame)>) {
         loop {
             match msg_rx.try_recv() {
-                Ok(Message::UpdateListener(listener)) => engine.update_listener(listener),
+                Ok(Message::UpdateListener(pos, rot)) => engine.update_listener(pos, rot),
                 Ok(Message::UpdateSources(sources)) => engine.update_sources(sources),
                 Ok(Message::Terminate) => break,
                 Err(TryRecvError::Empty) => {},
@@ -104,7 +104,7 @@ mod test {
     use crate::audio_engine::AudioEngine;
     use crate::audio_engine::gpu_structures::{GpuWindow, GPU_WINDOW_SIZE};
     use crate::audio_engine::signal_processor::fft::FftModule;
-    use crate::scene::listener::hrtf_filter::HrtfOptions;
+    use crate::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
     use crate::scene::mesh::Triangle;
     use crate::scene::Scene;
     use crate::scene::source::{AudioSource, FRAME_SIZE};
@@ -164,8 +164,8 @@ mod test {
         let filter_options = HrtfOptions {
             azimuth_samples: 1, // one every 2 deg
             elevation_samples: 1, // one every 2 deg
-            elevation_max: 0.0, // full sphere was captured
-            elevation_min: PI, // "
+            elevation_top: 0.0, // full sphere was captured
+            elevation_bottom: PI, // "
             sampling_rate: 44100.0
         };
 
@@ -179,8 +179,8 @@ mod test {
             }
         ];
 
-        let filter_path = "datasources/HRIR_FULL2DEG.sofa";
-        let scene = Scene::new(sources, triangles, filter_path, filter_options);
+        let filter = HrtfFilter::new(filter_options, "datasources/HRIR_FULL2DEG.sofa");
+        let scene = Scene::new(sources, triangles, filter);
 
         let mut engine = unsafe {
             AudioEngine::new(scene)

@@ -40,16 +40,12 @@ transform = Transform3D(-0.72252, -0.550055, 0.418813, 0.150748, 0.465867, 0.871
 shadow_enabled = true
 
 [node name="Player" parent="." instance=ExtResource("1_6fmou")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.5762, 0.81523, -6.83337)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.100533, 0.640606, 3.21162)
 can_freefly = true
 input_left = "move_left"
 input_right = "move_right"
 input_forward = "move_forward"
 input_back = "move_backwards"
-
-[node name="AudioListenerNode" type="AudioListenerNode" parent="Player"]
-hrtf_filter = "res://audio/HRIR_FULL2DEG.sofa"
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0639277, 1.63569, -0.0750828)
 
 [node name="AudioMeshNode" type="AudioMeshNode" parent="."]
 

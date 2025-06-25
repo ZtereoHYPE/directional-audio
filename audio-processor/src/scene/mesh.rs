@@ -1,7 +1,9 @@
 use crate::audio_engine::GpuData;
-use crate::scene::bvh::{BvhBuffer, BvhBuilder};
 use crate::util::{vec3, Axis};
 use crevice::std430::Vec3;
+use crate::scene::mesh::bvh::{BvhBuffer, BvhBuilder};
+
+pub(crate) mod bvh;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -62,10 +64,10 @@ pub(crate) struct SceneMesh {
 
 impl SceneMesh {
     pub(super) fn from_triangles(mut triangles: Vec<Triangle>) -> Self {
-        let bvh_nodes = BvhBuilder::new(&mut triangles).build();
+        let bvh = BvhBuilder::new(&mut triangles).build();
 
         Self {
-            bvh: BvhBuffer(bvh_nodes),
+            bvh,
             triangles: TriangleBuffer(triangles)
         }
     }

@@ -120,7 +120,9 @@ func rotate_look(rot_input : Vector2):
 	rotate_y(look_rotation.y)
 	head.transform.basis = Basis()
 	head.rotate_x(look_rotation.x)
-
+	
+func get_head_rotation() -> Vector3:
+	return head.rotation
 
 func enable_freefly():
 	collider.disabled = true

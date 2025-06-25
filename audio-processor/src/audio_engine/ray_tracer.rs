@@ -8,7 +8,7 @@ use crate::audio_engine::GpuData;
 use crate::scene::Scene;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
-use crevice::std430::Vec3;
+use crevice::std430::{Mat3, Vec3};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
@@ -33,7 +33,8 @@ pub(crate) struct RayTracer {
     cluster_module: KMeansModule,
     debug_module: DebugRayModule,
 
-    last_rt_pos: Vec3
+    last_rt_pos: Vec3,
+    last_rt_rot: Mat3
 }
 
 impl RayTracer {
@@ -285,6 +286,7 @@ impl RayTracer {
         );
 
         let last_rt_pos = scene.listener.location;
+        let last_rt_rot = scene.listener.rotation;
 
         Self {
             device,
@@ -300,8 +302,9 @@ impl RayTracer {
             ray_module,
             cluster_module,
             debug_module,
-            
+
             last_rt_pos,
+            last_rt_rot,
         }
     }
 
@@ -365,6 +368,8 @@ impl RayTracer {
 
     pub(super) unsafe fn copy_sources_debug(&mut self, scene: &Scene) {
         let last_rt_pos = scene.listener.location;
+        let last_rt_rot = scene.listener.rotation;
+
         self.device
             .reset_fences(from_ref(&self.fence))
             .expect("Failed to reset raytracer fence!");
@@ -391,7 +396,7 @@ impl RayTracer {
         self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
 
         // Trace the rays
-        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos);
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, last_rt_rot);
 
         // Submit the command buffer
         self.device
@@ -411,6 +416,7 @@ impl RayTracer {
             .expect("Failed to wait for fence!");
 
         self.last_rt_pos = last_rt_pos; // update it only once it's fully done
+        self.last_rt_rot = last_rt_rot;
     }
 
     pub(super) fn get_instance_buffer(&self) -> Buffer {

@@ -4,14 +4,15 @@ use crevice::std430::{Vec2, Vec3};
 use crevice::std430::Vec4;
 use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
-use crate::util::vec3;
+use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
+use crate::util::{complex, vec3};
 
 #[derive(Clone)]
 pub struct HrtfOptions {
     pub elevation_samples: u32,
     pub azimuth_samples: u32,
-    pub elevation_max: f32, // in radians
-    pub elevation_min: f32, // in radians
+    pub elevation_top: f32, // in radians
+    pub elevation_bottom: f32, // in radians
     pub sampling_rate: f32,
 }
 
@@ -24,7 +25,8 @@ pub struct HrtfFilter {
 }
 
 impl HrtfFilter {
-    pub fn new(options: HrtfOptions, file: &str, pad_length: usize) -> Self {
+    pub fn new(options: HrtfOptions, file: &str) -> Self {
+        let pad_length = GPU_WINDOW_SIZE;
         let sofa = OpenOptions::new()
             .sample_rate(options.sampling_rate)
             .open(file)
@@ -38,16 +40,17 @@ impl HrtfFilter {
             let sample_distance = 2.0 * PI / options.azimuth_samples as f32;
             
             (0..options.azimuth_samples)
-                .map(|e| (e as f32) * sample_distance)
+                .map(|e| (e as f32) * sample_distance) // -PI..PI
+                .map(|e| if e > PI { e - 2.0 * PI } else { e })
                 .collect::<Vec<_>>()
         };
 
         let elevations: Vec<f32> = {
-            let elevation_range = (options.elevation_max - options.elevation_min).abs();
+            let elevation_range = (options.elevation_top - options.elevation_bottom).abs();
             let sample_distance = elevation_range / ((options.elevation_samples - 1) as f32);
             
             (0..options.elevation_samples)
-                .map(|e| (e as f32) * sample_distance + options.elevation_max)
+                .map(|e| (e as f32) * sample_distance + options.elevation_top) // 0..PI
                 .collect::<Vec<_>>()
         };
         
@@ -58,9 +61,11 @@ impl HrtfFilter {
         let mut filter = Filter::new(filter_len);
         for (a_idx, &azimuth) in azimuths.iter().enumerate() {
             for (e_idx, &elevation) in elevations.iter().enumerate() {
-                let (x, y, z) = polar_to_cartesian_3d(azimuth, elevation);
-                sofa.filter_nointerp(x, y, z, &mut filter);
+                let unit_coordinates = vec3::from_unit_polar(azimuth, elevation);
+                let Vec3 {x, y, z} = godot_to_hrtf_space(unit_coordinates);
                 
+                sofa.filter_nointerp(x, y, z, &mut filter);
+
                 let left_transformed = transform_filter(&filter.left, pad_length);
                 let right_transformed = transform_filter(&filter.right, pad_length);
                 
@@ -122,51 +127,14 @@ fn transform_filter(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec4> {
     // The filter must also be converted to polar coordinates in order to enable interpolation
     fourier
         .iter()
-        .map(|val| cartesian_to_linear_polar(*val))
+        .map(|val| complex::to_linear_polar(*val))
         .collect()
 }
 
-/// elevation is 0..PI where 0 is the top and PI is the bottom
-/// azimuth is 0..2PI
-fn polar_to_cartesian_3d(azimuth: f32, elevation: f32) -> (f32, f32, f32) {
-    (
-        elevation.sin() * azimuth.cos(),
-        elevation.sin() * azimuth.sin(),
-        elevation.cos(),
-    )
-}
-
-pub fn cartesian_to_polar(cartesian: Vec3) -> Vec2 {
-    let radius = vec3::len(cartesian);
-
-    Vec2 {
-        x: f32::acos(cartesian.z / radius) / (PI - 0.0) - 0.0,
-        y: f32::atan2(cartesian.y, cartesian.x) / (2.0 * PI),
-    }
-}
-
-// todo: perform log interpolation
-// todo: move this to the complex module
-fn cartesian_to_linear_polar(cartesian: Vec2) -> Vec4 {
-    // done in f64 to avoid as much precision loss as possible
-    let x = cartesian.x as f64;
-    let y = cartesian.y as f64;
-    let mag = f64::sqrt(x * x + y * y);
-
-    Vec4 {
-        x: mag as f32,
-        y: (x / mag) as f32,
-        z: (y / mag) as f32,
-        w: 0.0 // because RGB is much less supported than RGBA
-    }
-}
-
-fn linear_polar_to_cartesian(polar: Vec4) -> Vec2 {
-    let len = (polar.y * polar.y + polar.z * polar.z).sqrt();
-    let normalized = Vec2{x: polar.y / len, y: polar.z / len};
-
-    Vec2 {
-        x: normalized.x * polar.x,
-        y: normalized.y * polar.x,
+fn godot_to_hrtf_space(vec: Vec3) -> Vec3 {
+    Vec3 {
+        x: -vec.z,
+        y: -vec.x,
+        z: vec.y, // todo: maybe negative?
     }
 }

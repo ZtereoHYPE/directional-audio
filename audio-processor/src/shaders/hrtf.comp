@@ -2,9 +2,7 @@
 #extension GL_EXT_shader_atomic_float : enable  // atomics for floats
 #extension GL_KHR_shader_subgroup_arithmetic : enable // subgroup arithmetic
 
-const float M_PI = radians(180);
-const float M_PI_HALF = radians(90);
-
+#include "imports/utils.comp"
 
 layout(constant_id = 0) const int WINDOW_SIZE = 1024;
 layout(constant_id = 1) const int FRAME_SIZE = 512;
@@ -20,14 +18,6 @@ layout(constant_id = 6) const float INSTANCES = 1;
 
 // x = frequency, y = source
 layout(local_size_x = 1, local_size_y = 64, local_size_z = 1) in;
-
-
-struct Instance {
-    vec3 direction;
-    float dist; // in meters
-    uint index;
-};
-
 
 layout(push_constant, std430) uniform Time {
     uint frame_idx;
@@ -53,24 +43,30 @@ layout(set = 0, binding = 3, std430) restrict buffer OutputRight {
 layout(set = 0, binding = 4) uniform sampler3D hrtfLeft;
 layout(set = 0, binding = 5) uniform sampler3D hrtfRight;
 
+// todo: log
+vec2 decode_polar_filter(vec3 polar) {
+    vec2 normalized = normalize(polar.yz);
+    return vec2(normalized.x * polar.x, normalized.y * polar.x);
+}
 
 vec2 cartesian_to_tex_coords(vec3 coords) {
     float radius = length(coords);
+    float elevation = acos(coords.y / radius);
+    float azimuth = atan(-coords.z, coords.x);
+    if (azimuth < 0) {
+        azimuth = azimuth + 2 * M_PI;
+    }
+
     return vec2(
-        // here we want the range of elevations between max and min to be stretched to 0 and 1, 
+        // here we want the range of elevations between max and min to be stretched to 0 and 1,
         // and everything else to fall outside
-        acos(coords.z / radius) / (MIN_ELEVATION - MAX_ELEVATION) - MAX_ELEVATION,
-        atan(coords.y, coords.x) / (2.0 * M_PI)
+        elevation / (MIN_ELEVATION - MAX_ELEVATION) - MAX_ELEVATION,
+        azimuth / (2.0 * M_PI)
     );
 }
 
 vec2 complex_mult(vec2 a, vec2 b) {
     return mat2(a.x, a.y, -a.y, a.x) * b;
-}
-
-vec2 decode_polar_filter(vec3 polar) {
-    vec2 normalized = normalize(polar.yz);
-    return vec2(normalized.x * polar.x, normalized.y * polar.x);
 }
 
 float attenuation(float f, float dist) {

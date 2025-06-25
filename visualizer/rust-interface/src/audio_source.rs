@@ -9,7 +9,7 @@ use audio_processor::scene::source::frequency::FrequencyAudioProvider;
 use audio_processor::scene::source::quiet::SilentAudioProfider;
 use audio_processor::util::vec3;
 use crate::audio_mesh::AudioMeshNode;
-use crate::to_lib_coords;
+use crate::to_vec;
 
 pub const AUDIO_SOURCE_GROUP: &str = "AudioSources";
 
@@ -46,7 +46,7 @@ impl AudioSourceNode {
 
         AudioSource::new(
             provider,
-            to_lib_coords(pos)
+            to_vec(pos)
         )
     }
 }

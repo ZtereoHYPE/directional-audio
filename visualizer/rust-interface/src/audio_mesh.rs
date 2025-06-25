@@ -6,7 +6,7 @@ use godot::obj::{Base, WithBaseField};
 use godot::prelude::*;
 use audio_processor::util::vec3;
 use audio_processor::util::vec3::len;
-use crate::to_lib_coords;
+use crate::to_vec;
 
 pub const AUDIO_MESH_GROUP: &str = "AudioMeshes";
 
@@ -60,7 +60,7 @@ impl AudioMeshNode {
                 let mut mesh_tris = (0..indices.len())
                     .map(|idx| indices.get(idx).unwrap() as usize)
                     .map(|indice| vertices.get(indice).unwrap())
-                    .map(|vertex| to_lib_coords(vertex))
+                    .map(|vertex| to_vec(vertex))
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
@@ -73,7 +73,7 @@ impl AudioMeshNode {
 
                 let mut mesh_tris = (0..vertices.len())
                     .map(|idx| vertices.get(idx).unwrap())
-                    .map(|vertex| to_lib_coords(vertex))
+                    .map(|vertex| to_vec(vertex))
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
