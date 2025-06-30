@@ -1,12 +1,9 @@
+use crate::to_vec;
 use audio_processor::scene::mesh::Triangle;
-use godot::classes::{CsgBox3D, CsgCombiner3D, ICsgCombiner3D, IStaticBody3D, Mesh, MeshInstance3D, RenderingServer, StaticBody3D};
 use godot::classes::mesh::ArrayType;
-use godot::global::godot_print;
+use godot::classes::{IStaticBody3D, Mesh, MeshInstance3D, StaticBody3D};
 use godot::obj::{Base, WithBaseField};
 use godot::prelude::*;
-use audio_processor::util::vec3;
-use audio_processor::util::vec3::len;
-use crate::to_vec;
 
 pub const AUDIO_MESH_GROUP: &str = "AudioMeshes";
 

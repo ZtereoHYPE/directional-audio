@@ -46,7 +46,7 @@ pub mod vec3 {
         left.x == right.x && left.y == right.y && left.z == right.z
     }
 
-    pub fn axis(vec: Vec3, idx: Axis) -> f32 {
+    pub(crate) fn axis(vec: Vec3, idx: Axis) -> f32 {
         match idx {
             Axis::X => vec.x,
             Axis::Y => vec.y,

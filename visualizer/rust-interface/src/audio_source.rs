@@ -1,15 +1,11 @@
-use std::path::Path;
-use godot::classes::{CsgCombiner3D, FileAccess, ICsgCombiner3D, ProjectSettings};
-use godot::obj::{Base, Gd, WithBaseField, WithUserSignals};
-use godot::prelude::*;
-use audio_processor::scene::mesh::Triangle;
-use audio_processor::scene::source::{AudioProvider, AudioSource};
-use audio_processor::scene::source::file::FileAudioProvider;
-use audio_processor::scene::source::frequency::FrequencyAudioProvider;
-use audio_processor::scene::source::quiet::SilentAudioProfider;
-use audio_processor::util::vec3;
-use crate::audio_mesh::AudioMeshNode;
 use crate::to_vec;
+use audio_processor::scene::source::file::FileAudioProvider;
+use audio_processor::scene::source::quiet::SilentAudioProfider;
+use audio_processor::scene::source::{AudioProvider, AudioSource};
+use godot::classes::ProjectSettings;
+use godot::obj::{Base, WithBaseField};
+use godot::prelude::*;
+use std::path::Path;
 
 pub const AUDIO_SOURCE_GROUP: &str = "AudioSources";
 

@@ -1,10 +1,16 @@
-use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
+use crate::audio_engine::gpu_structures::{FftBuffer, FftConstants, FftUbo, GPU_WINDOW_SIZE};
 use crate::util::complex;
 use crate::util::complex::{root_of_unity, scalar_mult};
-use ash::vk::{AccessFlags, CommandBuffer, DependencyFlags, DescriptorSet, DescriptorSetLayout, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineLayout, PipelineStageFlags, Queue};
+use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::Vec2;
 use std::array::from_ref;
+use std::f32::consts::PI;
+use std::mem::transmute;
+use std::rc::Rc;
+use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
+use crate::audio_engine::buffer_initializer::BufferInitializer;
+use crate::audio_engine::read_file_words;
 // todo: maybe use newtype pattern to refer to buffers?
 
 pub(crate) const RADIX_AMT: usize = 3;
@@ -33,27 +39,270 @@ pub(crate) struct FftModule {
     pipeline_layout: PipelineLayout,
     descriptor_sets: Vec<DescriptorSet>,
     descriptor_set_layout: DescriptorSetLayout,
+    buffers: [Buffer; 2],
     queue: Queue,
     stages: Vec<FftStage>,
 }
 
 impl FftModule {
     pub(crate) fn new(
+        allocator: Rc<Allocator>,
+        initializer: &mut BufferInitializer,
         device: Device,
-        pipelines: [Pipeline; RADIX_AMT],
-        pipeline_layout: PipelineLayout,
-        descriptor_sets: Vec<DescriptorSet>,
-        descriptor_set_layout: DescriptorSetLayout,
-        queue: Queue,
+        queue: (Queue, u32),
+        descriptor_pool: DescriptorPool,
         stages: Vec<FftStage>,
     ) -> Self {
+        let (fft_ubos, fft_ubo_memories) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(size_of::<FftUbo>() as u64)
+                .usage(BufferUsageFlags::UNIFORM_BUFFER)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferDevice,
+                flags: AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
+                ..Default::default()
+            };
+
+            let mut buffers = vec![];
+            let mut memories = vec![];
+
+            // Create a UBO per stage
+            for stage in &stages {
+                let (buffer, mut memory) = allocator
+                    .create_buffer(&buffer_info, &allocation_info)
+                    .expect("Failed to create buffer");
+
+                let map = allocator
+                    .map_memory(&mut memory)
+                    .expect("Failed to map memory");
+
+                let inverse = false;
+
+                // Populate the UBO
+                let direction: f32 = if !inverse { -1.0 } else { 1.0 };
+                let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32};
+                let data = FftUbo {
+                    split_size: stage.split_size,
+                    radix_stride: stage.stride,
+                    angle_direction_factor: direction,
+                    angle_spin_factor: direction * (PI / (stage.split_size as f32)),
+                    normalization_factor: normalization,
+                };
+
+                std::ptr::write(map.cast(), data);
+
+                allocator.unmap_memory(&mut memory);
+                buffers.push(buffer);
+                memories.push(memory);
+            }
+
+            (buffers, memories)
+        };
+
+        let ((fft_gpu_buf_1, fft_gpu_mem_1), (fft_gpu_buf_2, fft_gpu_mem_2)) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(FftBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferDevice,
+                ..Default::default()
+            };
+
+            (
+                allocator
+                    .create_buffer(&buffer_info, &allocation_info)
+                    .expect("Failed to create buffer"),
+
+                allocator
+                    .create_buffer(&buffer_info, &allocation_info)
+                    .expect("Failed to create buffer"),
+            )
+        };
+
+        let (descriptor_sets, descriptor_set_layout) = unsafe {
+            // Create layout, which is the same across every stage
+            let bindings = [
+                DescriptorSetLayoutBinding::default()
+                    .binding(0)
+                    .descriptor_count(1)
+                    .descriptor_type(DescriptorType::UNIFORM_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE),
+
+                DescriptorSetLayoutBinding::default()
+                    .binding(1)
+                    .descriptor_count(1)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE),
+
+                DescriptorSetLayoutBinding::default()
+                    .binding(2)
+                    .descriptor_count(1)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE)
+            ];
+
+            let set_layout_info = DescriptorSetLayoutCreateInfo::default()
+                .bindings(&bindings);
+
+            let set_layouts = vec![
+                device
+                    .create_descriptor_set_layout(&set_layout_info, None)
+                    .expect("Failed to create descriptor set layout")
+                ; stages.len()
+            ];
+
+            // Allocate one set per stage
+            let set_info = DescriptorSetAllocateInfo::default()
+                .descriptor_pool(descriptor_pool)
+                .set_layouts(&set_layouts[..]);
+
+            let sets = device
+                .allocate_descriptor_sets(&set_info)
+                .expect("Failed to allocate descriptor sets");
+
+            // Create buffer information
+            let ubo_infos = fft_ubos
+                .iter()
+                .map(|ubo| {
+                    DescriptorBufferInfo::default()
+                        .buffer(*ubo)
+                        .range(WHOLE_SIZE)
+                })
+                .collect::<Vec<_>>();
+
+            let ssbo_infos = (
+                DescriptorBufferInfo::default()
+                    .buffer(fft_gpu_buf_1)
+                    .range(WHOLE_SIZE),
+
+                DescriptorBufferInfo::default()
+                    .buffer(fft_gpu_buf_2)
+                    .range(WHOLE_SIZE),
+            );
+
+            // Write the descriptor sets
+            let mut writes = vec![];
+            for (idx, set) in sets.iter().enumerate() {
+                writes.extend_from_slice(&[
+                    WriteDescriptorSet::default()
+                        .dst_set(*set)
+                        .descriptor_count(1)
+                        .dst_binding(0)
+                        .descriptor_type(DescriptorType::UNIFORM_BUFFER)
+                        .buffer_info(from_ref(&ubo_infos[idx])),
+
+                    WriteDescriptorSet::default()
+                        .dst_set(*set)
+                        .descriptor_count(1)
+                        .dst_binding(1 + (idx % 2) as u32) // 1, 2, 1, ...
+                        .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(from_ref(&ssbo_infos.0)),
+
+                    WriteDescriptorSet::default()
+                        .dst_set(*set)
+                        .descriptor_count(1)
+                        .dst_binding(1 + ((idx + 1) % 2) as u32) // 2, 1, 2, ...
+                        .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(from_ref(&ssbo_infos.1))
+                ]);
+            }
+
+            device.update_descriptor_sets(&writes[..], &[]);
+            (sets, set_layouts[0])
+        };
+
+        let (pipelines, pipeline_layout) = unsafe {
+            // The layout is the same for all pipelines
+            let layout_info = PipelineLayoutCreateInfo::default()
+                .set_layouts(from_ref(&descriptor_set_layout));
+
+            let layout = device
+                .create_pipeline_layout(&layout_info, None)
+                .expect("Failed to create pipeline layout");
+
+
+            // The SPIR-V is the same for all pipelines
+            let code_words = read_file_words("target/shaders/fft.comp.spv");
+
+            let shader_module_info = ShaderModuleCreateInfo::default()
+                .code(&code_words[..]);
+
+            let shader_module = device
+                .create_shader_module(&shader_module_info, None)
+                .expect("Failed to create shader module");
+
+
+            // There is a specialization constant with a different value for each pipeline
+            let specialization_entries = [
+                SpecializationMapEntry::default()
+                    .constant_id(0)
+                    .offset(0)
+                    .size(size_of::<i32>()),
+
+                SpecializationMapEntry::default()
+                    .constant_id(1)
+                    .offset(4)
+                    .size(size_of::<i32>()),
+            ];
+
+            let constant_data = RADICES
+                .iter()
+                .map(|radix| {
+                    FftConstants {
+                        radix: *radix as i32,
+                        frame_size: GPU_WINDOW_SIZE as i32
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let specialization_infos: [_; RADIX_AMT] = constant_data
+                .iter()
+                .map(|datum| {
+                    SpecializationInfo::default()
+                        .map_entries(&specialization_entries)
+                        .data(transmute::<_, &[u8; 8]>(datum))
+                })
+                .collect::<Vec<_>>()
+                .try_into().unwrap();
+
+            let pipeline_infos: [_; RADIX_AMT] = (0..RADIX_AMT)
+                .map(|idx| {
+                    let stage_info = PipelineShaderStageCreateInfo::default()
+                        .stage(ShaderStageFlags::COMPUTE)
+                        .module(shader_module)
+                        .specialization_info(&specialization_infos[idx])
+                        .name(c"main");
+
+                    ComputePipelineCreateInfo::default()
+                        .layout(layout)
+                        .stage(stage_info)
+                })
+                .collect::<Vec<_>>()
+                .try_into().unwrap();
+
+            // Create pipelines
+            let pipelines: [Pipeline; RADIX_AMT] = device
+                .create_compute_pipelines(PipelineCache::null(), &pipeline_infos, None)
+                .expect("Failed to create pipeline")
+                .try_into().unwrap();
+
+            (pipelines, layout)
+        };
+
         Self {
             device,
             pipelines,
             pipeline_layout,
             descriptor_sets,
             descriptor_set_layout,
-            queue,
+            buffers: [fft_gpu_buf_1, fft_gpu_buf_2],
+            queue: queue.0,
             stages,
         }
     }
@@ -98,6 +347,10 @@ impl FftModule {
         }
 
         (self.stages.len() % 2) as u32 // this is the index of the buffer where the result will be
+    }
+
+    pub fn starting_buffer(&self) -> Buffer {
+        self.buffers[0]
     }
 
     pub(super) fn fft_stages(input_size: usize) -> Vec<FftStage> {

@@ -40,7 +40,7 @@ impl Triangle {
 pub(crate) struct TriangleBuffer(Vec<Triangle>);
 
 impl GpuData for TriangleBuffer {
-    unsafe fn serialize(&self, dst: *mut u8) {
+    unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         if self.0.is_empty() {
             return;
         }
@@ -50,7 +50,7 @@ impl GpuData for TriangleBuffer {
             dst,
             self.size()
         );
-    }
+    }}
 
     fn size(&self) -> usize {
         size_of::<Triangle>() * self.0.len() // should not be 0 to avoid crashes

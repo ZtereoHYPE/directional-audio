@@ -10,13 +10,13 @@ const BVH_SPLIT_ATTEMPTS: usize = 8;
 #[derive(Clone)]
 pub(crate) struct BvhBuffer(pub Vec<BvhNode>);
 impl GpuData for BvhBuffer {
-    unsafe fn serialize(&self, dst: *mut u8) {
+    unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         std::ptr::copy_nonoverlapping(
             (&self.0[..] as *const [BvhNode]).cast(),
             dst,
             self.size()
         );
-    }
+    }}
     
     fn size(&self) -> usize { 
         size_of::<BvhNode>() * self.0.len()

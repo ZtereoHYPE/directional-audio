@@ -49,7 +49,7 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub(crate) unsafe fn new(scene: Scene) -> Self {
+    pub(crate) unsafe fn new(scene: Scene) -> Self { unsafe {
         let entry = Entry::load().expect("Could not load audio_engine library");
 
         let instance = {
@@ -180,7 +180,7 @@ impl AudioEngine {
             signal_processor,
             ray_tracer,
         }
-    }
+    }}
 
     pub(crate) fn process_frames(&mut self) -> (Frame, Frame) {
         unsafe {
@@ -198,10 +198,11 @@ impl AudioEngine {
                 InstanceBuffer::max_size() as DeviceSize
             );
 
-            let last_rt_pos = self.ray_tracer.get_last_rt_pos();
-
-            // todo: instead of passin scene in here just pass what they exactly need (even above with trace_rays)
-            let (left, right) = self.signal_processor.process_frames(&mut self.scene, last_rt_pos);
+            let (left, right) = self.signal_processor.process_frames(
+                &self.scene.listener,
+                &mut self.scene.sources,
+                self.ray_tracer.get_last_rt_pos()
+            );
 
             (
                 gpu_to_frame(&left),
@@ -254,7 +255,7 @@ unsafe extern "system" fn debug_callback(
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     _user_data: *mut std::os::raw::c_void,
-) -> vk::Bool32 {
+) -> vk::Bool32 { unsafe {
     let callback_data = *p_callback_data;
     let message_id_number = callback_data.message_id_number;
 
@@ -275,7 +276,7 @@ unsafe extern "system" fn debug_callback(
     );
 
     vk::FALSE
-}
+}}
 
 // Util function for submodules
 fn read_file_words(path: impl AsRef<Path>) -> Vec<u32> {

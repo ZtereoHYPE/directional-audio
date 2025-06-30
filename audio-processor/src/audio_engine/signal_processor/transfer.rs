@@ -1,54 +1,97 @@
 use crate::audio_engine::gpu_structures::{DownloadBuffer, FftBuffer, GpuWindow, UploadBuffer, MAX_DELAY_FRAMES, MAX_SOURCES};
 use crate::audio_engine::GpuData;
-use crate::scene::source::FRAME_SIZE;
+use crate::scene::source::{AudioSource, FRAME_SIZE};
 use crate::scene::Scene;
-use ash::vk::{AccessFlags, Buffer, BufferCopy, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo, WHOLE_SIZE};
+use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, FenceCreateInfo, MemoryBarrier, MemoryPropertyFlags, PipelineStageFlags, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::Vec2;
 use std::array::from_ref;
+use std::error::Error;
 use std::rc::Rc;
 use std::u64::MAX;
-use vk_mem::{Allocation, Allocator};
+use ash::prelude::VkResult;
+use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator};
 
 pub struct TransferModule {
     allocator: Rc<Allocator>,
     device: Device,
     queue: Queue,
+    fence: Fence,
 
     cpu_buffers: [Buffer; 2],
     cpu_buffer_memories: [Allocation; 2],
     cpu_buffer_maps: [*mut u8; 2],
 
-    fence: Fence,
+    input_buffer: Buffer, // do NOT free these, they are not this module's responsibility
+    output_buffer: Buffer,
 }
 
 impl TransferModule {
     pub unsafe fn new(
         allocator: Rc<Allocator>,
         device: Device,
-        queue: Queue,
-        cpu_buffers: [Buffer; 2],
-        cpu_buffer_memories: [Allocation; 2],
-        cpu_buffer_maps: [*mut u8; 2],
-        fence: Fence,
+        queue: (Queue, u32),
+        input_buffer: Buffer,
+        output_buffer: Buffer,
     ) -> TransferModule {
+        let (cpu_buffers, cpu_buffer_memories, cpu_buffer_maps) = {
+            let buffer_info = BufferCreateInfo::default()
+                .size(UploadBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferHost,
+                preferred_flags: MemoryPropertyFlags::HOST_COHERENT | MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_CACHED,
+                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
+                ..Default::default()
+            };
+
+            let (upload_buffer, mut upload_memory) = allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer");
+
+            let upload_map = allocator
+                .map_memory(&mut upload_memory)
+                .expect("Failed to map memory");
+
+            let buffer_info = buffer_info.size(DownloadBuffer::max_size() as u64);
+            // todo: different queues
+
+            let (download_buffer, mut download_memory) = allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer");
+
+            let download_map = allocator
+                .map_memory(&mut download_memory)
+                .expect("Failed to map memory");
+
+            ([upload_buffer, download_buffer], [upload_memory, download_memory], [upload_map, download_map])
+        };
+
+        let fence = device
+            .create_fence(&FenceCreateInfo::default(), None)
+            .expect("failed to create fence");
+
         TransferModule {
             allocator,
             device,
-            queue,
+            queue: queue.0,
             cpu_buffers,
             cpu_buffer_memories,
             cpu_buffer_maps,
             fence,
+            input_buffer,
+            output_buffer,
         }
     }
 
-    // todo: might switch to optional to remove a lot of these expects, in other modules too.
-    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, scene: &mut Scene, dst: &Buffer, frame_counter: usize) {
+    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, sources: &mut Vec<AudioSource>, frame_counter: usize) -> VkResult<()> {
         let mut regions = vec![];
         let mut clear_frames: Vec<DeviceSize> = vec![];
         
-        let mut sources = &mut scene.sources;
+        // let mut sources = &mut scene.sources;
         let delay_buffer_offset = (frame_counter % MAX_DELAY_FRAMES) * FRAME_SIZE * size_of::<Vec2>() ; // start at 0
 
         // copy frame to cpu buffer, keeping track of which regions are actually updated
@@ -72,30 +115,24 @@ impl TransferModule {
             }
         }
 
-        self.allocator
-            .flush_allocation(&self.cpu_buffer_memories[0], 0, WHOLE_SIZE)
-            .expect("Failed to flush the cpu buffer allocation");
+        self.allocator.flush_allocation(&self.cpu_buffer_memories[0], 0, WHOLE_SIZE)?;
 
-        self.device
-            .reset_command_buffer(*command_buffer, CommandBufferResetFlags::empty())
-            .expect("Failed to reset command buffer");
+        self.device.reset_command_buffer(*command_buffer, CommandBufferResetFlags::empty())?;
 
         let begin_info = CommandBufferBeginInfo::default()
             .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
-        self.device
-            .begin_command_buffer(*command_buffer, &begin_info)
-            .expect("Failed to begin command buffer recording");
+        self.device.begin_command_buffer(*command_buffer, &begin_info)?;
 
         self.device.cmd_copy_buffer(
             *command_buffer,
             self.cpu_buffers[0],
-            *dst,
+            self.input_buffer,
             &regions[..]
         );
 
         for offset in clear_frames {
-            self.device.cmd_fill_buffer(*command_buffer, *dst, offset, (FRAME_SIZE * size_of::<Vec2>()) as DeviceSize, 0)
+            self.device.cmd_fill_buffer(*command_buffer, self.input_buffer, offset, (FRAME_SIZE * size_of::<Vec2>()) as DeviceSize, 0)
         }
 
         let memory_barrier = MemoryBarrier::default()
@@ -111,6 +148,8 @@ impl TransferModule {
             &[],
             &[]
         );
+
+        Ok(())
     }
 
     pub unsafe fn download_upload_buf(&mut self, command_buffer: &mut CommandBuffer, src: &Buffer) -> Box<FftBuffer> {
@@ -151,41 +190,31 @@ impl TransferModule {
     }
 
     // todo: this could be made a bit more efficient if only the relevant part of the frame is copied. This would involve perfoming the FFT here.
-    pub unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer, src: &Buffer) -> (Box<GpuWindow>, Box<GpuWindow>) {
-        self.device
-            .reset_fences(from_ref(&self.fence))
-            .expect("Failed to reset fence");
-    
+    pub unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer) -> VkResult<(Box<GpuWindow>, Box<GpuWindow>)> {
+        self.device.reset_fences(from_ref(&self.fence))?;
+
         let region = BufferCopy::default()
             .size(size_of::<GpuWindow>() as u64 * 2);
     
         self.device.cmd_copy_buffer(
             *command_buffer,
-            *src,
+            self.output_buffer,
             self.cpu_buffers[1],
             from_ref(&region)
         );
     
-        self.device
-            .end_command_buffer(*command_buffer)
-            .expect("Failed to end command buffer!");
-    
+        self.device.end_command_buffer(*command_buffer)?;
+
         let submit_info = SubmitInfo::default()
             .command_buffers(from_ref(command_buffer));
     
-        self.device
-            .queue_submit(self.queue, &[submit_info], self.fence)
-            .expect("Failed to submit command buffer");
-    
-        self.device
-            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
-            .expect("Failed to wait for fence!");
-    
-        self.allocator
-            .invalidate_allocation(&self.cpu_buffer_memories[1], 0, WHOLE_SIZE)
-            .expect("Failed to invalidate allocation");
+        self.device.queue_submit(self.queue, &[submit_info], self.fence)?;
 
-        DownloadBuffer::from_memory_map(self.cpu_buffer_maps[1]).get_windows()
+        self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
+
+        self.allocator.invalidate_allocation(&self.cpu_buffer_memories[1], 0, WHOLE_SIZE)?;
+
+        Ok(DownloadBuffer::from_memory_map(self.cpu_buffer_maps[1]).get_windows())
     }
 }
 

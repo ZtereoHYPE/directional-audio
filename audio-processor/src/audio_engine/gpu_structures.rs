@@ -48,13 +48,13 @@ pub(crate) struct UploadBuffer {
 }
 
 impl GpuData for UploadBuffer {
-    unsafe fn serialize(&self, dst: *mut u8) {
+    unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         std::ptr::copy_nonoverlapping(
             (self as *const UploadBuffer).cast(),
             dst,
             size_of::<UploadBuffer>()
         );
-    }
+    }}
 
     fn size(&self) -> usize {
         Self::max_size()
@@ -68,13 +68,13 @@ impl UploadBuffer {
         }
     }
 
-    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> {
+    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> { unsafe {
         if !pointer.cast::<Self>().is_aligned() {
             panic!("The given pointer is not properly aligned!");
         }
 
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
-    }
+    }}
 
     pub(crate) fn max_size() -> usize {
         size_of::<Self>()
@@ -93,20 +93,20 @@ pub(crate) struct DownloadBuffer {
 }
 
 impl DownloadBuffer {
-    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> {
+    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> { unsafe {
         if !pointer.cast::<Self>().is_aligned() {
             panic!("The given pointer is not properly aligned!");
         }
 
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
-    }
+    }}
 
-    pub(crate) unsafe fn get_windows(&self) -> (Box<GpuWindow>, Box<GpuWindow>) {
+    pub(crate) unsafe fn get_windows(&self) -> (Box<GpuWindow>, Box<GpuWindow>) { unsafe {
         let left = copy_to_box(&self.windows[0] as *const GpuWindow);
         let right = copy_to_box(&self.windows[1] as *const GpuWindow);
 
         (left, right)
-    }
+    }}
 
     pub(crate) const fn last_frame_range() -> (usize, usize) {
         (
@@ -139,13 +139,13 @@ pub(crate) struct InstanceBuffer {
 }
 
 impl GpuData for InstanceBuffer {
-    unsafe fn serialize(&self, dst: *mut u8) {
+    unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         std::ptr::copy_nonoverlapping(
             (&self.instances[..] as *const [AudioInstance]).cast(),
             dst,
             size_of::<AudioInstance>() * self.instances.len()
         );
-    }
+    }}
 
     fn size(&self) -> usize {
         self.instances.len() * 32
@@ -195,13 +195,13 @@ pub(crate) struct SourcesBuffer {
 }
 
 impl SourcesBuffer {
-    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> {
+    pub(crate) unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> { unsafe {
         if !pointer.cast::<Self>().is_aligned() {
             panic!("The given pointer is not properly aligned!");
         }
 
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
-    }
+    }}
 
     pub(crate) unsafe fn copy_coordinates(&mut self, scene: &Scene) {
         for (idx, source) in scene.sources.iter().enumerate() {
