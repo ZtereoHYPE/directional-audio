@@ -13,11 +13,12 @@ use crevice::std430::{Mat3, Vec3};
 use plotters::prelude::*;
 use std::error::Error;
 use std::mem::take;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use crevice::internal::bytemuck::Zeroable;
 
 enum Message {
     Terminate,
@@ -25,38 +26,55 @@ enum Message {
     UpdateSources(Vec<(usize, Vec3)>)
 }
 
+struct StateUpdates {
+    terminate: bool,
+    listener: Option<(Vec3, Mat3)>,
+    sources: Option<Vec<(usize, Vec3)>>,
+}
+
 pub struct AudioEngineMonitor {
-    msg_tx: Sender<Message>,
+    state: Arc<Mutex<StateUpdates>>,
     frame_rx: Receiver<(Frame, Frame)>,
     vulkan_thread: JoinHandle<()>
 }
 
 impl AudioEngineMonitor {
-    pub fn start(mut scene: Scene) -> Self {
-        let (msg_tx, msg_rx) = mpsc::channel();
-        let (frame_tx, frame_rx) = mpsc::channel();
+    pub fn start(mut scene: Scene, max_ahead: usize) -> Self {
+        // Create sync structures
+        let (frame_tx, frame_rx) = mpsc::sync_channel(max_ahead); // render max 10 frames ahead
+        let state = Arc::new(Mutex::new(StateUpdates {
+            terminate: false,
+            listener: (scene.listener.location, scene.listener.rotation).into(),
+            sources: Some(scene.sources
+                .iter()
+                .enumerate()
+                .map(|(idx, src)| (idx, src.coordinates))
+                .collect())
+        }));
 
+        // Start the thread
+        let thread_state = state.clone();
         let vulkan_thread = thread::spawn(move || {
             let engine = unsafe {
                 AudioEngine::new(scene)
             };
 
-            Self::vulkan_thread_job(engine, msg_rx, frame_tx);
+            Self::vulkan_thread_job(engine, thread_state, frame_tx);
         });
 
         Self {
-            msg_tx,
+            state,
             frame_rx,
             vulkan_thread
         }
     }
 
     pub fn update_listener(&self, pos: Vec3, rot: Mat3) {
-        self.msg_tx.send(Message::UpdateListener(pos, rot)).unwrap()
+        self.state.lock().unwrap().listener = Some((pos, rot));
     }
 
     pub fn update_sources(&self, sources: Vec<(usize, Vec3)>) {
-        self.msg_tx.send(Message::UpdateSources(sources)).unwrap()
+        self.state.lock().unwrap().sources = Some(sources);
     }
 
     pub fn get_frames(&self, max: usize) -> Vec<(Frame, Frame)> {
@@ -64,29 +82,34 @@ impl AudioEngineMonitor {
     }
 
     pub fn terminate(self) {
-        self.msg_tx.send(Message::Terminate);
+        self.state.lock().unwrap().terminate = true;
         self.vulkan_thread.join().unwrap()
     }
 
-    fn vulkan_thread_job(mut engine: AudioEngine, msg_rx: Receiver<Message>, frame_tx: Sender<(Frame, Frame)>) {
+    fn vulkan_thread_job(mut engine: AudioEngine, state: Arc<Mutex<StateUpdates>>, frame_tx: SyncSender<(Frame, Frame)>) {
         loop {
-            match msg_rx.try_recv() {
-                Ok(Message::UpdateListener(pos, rot)) => engine.update_listener(pos, rot),
-                Ok(Message::UpdateSources(sources)) => engine.update_sources(sources),
-                Ok(Message::Terminate) => break,
-                Err(TryRecvError::Empty) => {},
-                Err(e) => {
-                    println!("Error receiving message: {}", e);
+            {
+                // Check for any updates to listener or sources
+                let mut locked_state = state.lock().unwrap();
+                if locked_state.terminate {
+                    break;
+                }
+
+                if let Some((pos, dir)) = locked_state.listener {
+                    engine.update_listener(pos, dir);
+                    locked_state.listener = None;
+                }
+
+                if let Some(sources) = &locked_state.sources {
+                    engine.update_sources(sources.clone());
+                    locked_state.sources = None;
                 }
             }
 
-            let now = Instant::now();
-            // todo: handle this better (the channel might shut down before and return a SendError
-            frame_tx.send(engine.process_frames()).unwrap();
-
-            let ideal_time = (FRAME_SIZE * 1000 / 44100);
-            let difference = Duration::from_millis(ideal_time as u64) - now.elapsed();
-            thread::sleep(difference);
+            if let Err(send_err) = frame_tx.send(engine.process_frames())
+                && !state.lock().unwrap().terminate {
+                panic!("An error occurred while appending new frames!");
+            }
         }
     }
 }

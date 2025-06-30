@@ -347,7 +347,7 @@ mod complex_tests {
 
         let simple_lerp = complex::sum(complex::scalar_mult(vec1, 0.25), complex::scalar_mult(vec2, 0.75));
 
-        println!("expected {} {}, linear_polar {} {}, straight up lerp {} {}",
+        println!("ideal {} {}, linear_polar {} {}, straight up lerp {} {}",
             amplitude, phase,
             complex::amplitude(result), complex::phase(result),
             complex::amplitude(simple_lerp), complex::phase(simple_lerp)

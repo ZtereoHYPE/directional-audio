@@ -22,20 +22,25 @@ use crate::audio_mesh::{AudioMeshNode, AUDIO_MESH_GROUP};
 use crate::audio_source::{AudioSourceNode, AUDIO_SOURCE_GROUP};
 use crate::to_vec;
 
+const SAMPLE_RATE: f64 = 44100.0;
+
 #[derive(GodotClass)]
 #[class(base=Node3D)]
 pub struct AudioListenerNode {
     #[export(file = "*.sofa")]
     hrtf_filter: GString,
-
     #[export]
     export_audio: bool,
+    #[export]
+    max_frames_ahead: u32,
+
     accumulated_samples: Vec<Vector2>,
+    allowed_samples: f64,
 
     last_position: Vector3,
     last_rotation: Vector3,
-    audio_stream_player: Gd<AudioStreamPlayer>, // warning: never gets free'd
 
+    audio_stream_player: Gd<AudioStreamPlayer>, // warning: never gets free'd
     audio_engine: Option<AudioEngineMonitor>,
 
     base: Base<Node3D>
@@ -50,23 +55,27 @@ impl INode3D for AudioListenerNode {
         // Create a stream generator with 44.1kHz sampling rate
         let mut generator = AudioStreamGenerator::new_gd();
         generator.set_mix_rate_mode(AudioStreamGeneratorMixRate::CUSTOM);
-        generator.set_mix_rate(44100.0);
+        generator.set_mix_rate(SAMPLE_RATE as f32);
         audio_stream_player.set_stream(&generator);
 
         Self {
             hrtf_filter: GString::from(""),
             export_audio: false,
+            max_frames_ahead: 5,
             accumulated_samples: vec![],
-            audio_stream_player,
+            allowed_samples: 5.0,
             last_position: Vector3::ZERO,
             last_rotation: Vector3::ZERO,
+            audio_stream_player,
             audio_engine: None,
             base
         }
     }
 
     // Gets called every frame
-    fn process(&mut self, _: f64) {
+    fn process(&mut self, delta: f64) {
+        self.allowed_samples += delta * SAMPLE_RATE / FRAME_SIZE as f64;
+
         if self.audio_engine.is_none() {
             return;
         }
@@ -76,7 +85,9 @@ impl INode3D for AudioListenerNode {
         if let Some(playback) = &self.audio_stream_player.get_stream_playback() {
             let mut playback = playback.clone().cast::<AudioStreamGeneratorPlayback>();
 
-            let max_frames = playback.get_frames_available() as usize / FRAME_SIZE;
+            let max_frames = usize::min(playback.get_frames_available() as usize / FRAME_SIZE, self.allowed_samples as usize);
+            self.allowed_samples -= max_frames as f64;
+            
             let frames = engine.get_frames(max_frames)
                 .iter()
                 .flat_map(|(l, r)| l.iter().zip(r))
@@ -92,7 +103,7 @@ impl INode3D for AudioListenerNode {
     }
 
     // gets called every "tick" (physics frame)
-    fn physics_process(&mut self, delta: f64) {
+    fn physics_process(&mut self, _: f64) {
         if self.audio_engine.is_none() {
             return;
         }
@@ -121,15 +132,15 @@ impl INode3D for AudioListenerNode {
             let spec = hound::WavSpec {
                 channels: 2,
                 sample_rate: 44100,
-                bits_per_sample: 32,
-                sample_format: hound::SampleFormat::Float,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
             };
 
             let mut writer = hound::WavWriter::create("exported.wav", spec).unwrap();
 
             for vec in &self.accumulated_samples {
-                writer.write_sample(vec.x).unwrap();
-                writer.write_sample(vec.y).unwrap();
+                writer.write_sample((vec.x * 32_768.0) as i16).unwrap();
+                writer.write_sample((vec.y * 32_768.0) as i16).unwrap();
             }
 
             writer.finalize().unwrap();
@@ -138,6 +149,8 @@ impl INode3D for AudioListenerNode {
 
     // Gets called after the node structure has "stabilized"
     fn ready(&mut self) {
+        self.allowed_samples = self.max_frames_ahead as f64;
+
         // self.audio_stream_player.play();
         let hrtf_path = ProjectSettings::singleton().globalize_path(&self.hrtf_filter).to_string();
         if !Path::new(&hrtf_path).is_file() {
@@ -184,7 +197,7 @@ impl INode3D for AudioListenerNode {
         );
 
         godot_print!("Creating engine!");
-        self.audio_engine = Some(AudioEngineMonitor::start(scene));
+        self.audio_engine = Some(AudioEngineMonitor::start(scene, self.max_frames_ahead as usize));
 
         // Start the playback
         self.audio_stream_player.play();

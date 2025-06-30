@@ -33,3 +33,4 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
 
 [node name="AudioListenerNode" type="AudioListenerNode" parent="Head"]
 hrtf_filter = "res://audio/HRIR_FULL2DEG.sofa"
+export_audio = true
