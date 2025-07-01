@@ -1,8 +1,9 @@
 use crate::audio_engine::read_file_words;
-use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::Vec3;
 use std::array::from_ref;
+use crate::audio_engine::ray_tracer::RayTracerConstants;
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
 
@@ -23,7 +24,8 @@ impl RayModule {
         bvh_buffer: Buffer,
         triangle_buffer: Buffer,
         rt_output_buffer: Buffer,
-        queue: Queue
+        queue: Queue,
+        constants: RayTracerConstants
     ) -> Self {
         let (descriptor_set, descriptor_set_layout) = unsafe {
             let bindings = [
@@ -134,9 +136,17 @@ impl RayModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
+            let specialization_entries =
+                RayTracerConstants::get_entries(&[0, 1, 2, 3]); // select these constants
+
+            let specialization_info = SpecializationInfo::default()
+                .map_entries(&specialization_entries)
+                .data(constants.to_slice());
+
             let stage_info = PipelineShaderStageCreateInfo::default()
                 .stage(ShaderStageFlags::COMPUTE)
                 .module(shader_module)
+                .specialization_info(&specialization_info)
                 .name(c"main");
 
             let pipeline_info = ComputePipelineCreateInfo::default()

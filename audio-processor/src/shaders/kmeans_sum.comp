@@ -1,11 +1,12 @@
 #version 460
 
-// todo: look into sharing constant indices maybe? Such that only one constant buffer can be used
-const uint POINT_AMOUNT = 1024;
-const uint SOURCE_AMOUNT = 1;
-const uint KMEANS_CENTROIDS = 8;
-
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+
+layout(constant_id = 0) const uint POINT_AMOUNT = 1024;
+layout(constant_id = 1) const uint SOURCE_AMOUNT = 1;
+layout(constant_id = 4) const uint KMEANS_CENTROIDS = 8;
+
 
 struct Output {
     vec3 location;

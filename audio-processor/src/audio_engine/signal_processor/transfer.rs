@@ -8,7 +8,6 @@ use crevice::std430::Vec2;
 use std::array::from_ref;
 use std::error::Error;
 use std::rc::Rc;
-use std::u64::MAX;
 use ash::prelude::VkResult;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator};
 
@@ -179,7 +178,7 @@ impl TransferModule {
             .expect("Failed to submit command buffer");
 
         self.device
-            .wait_for_fences(from_ref(&self.fence), true, MAX)
+            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
             .expect("Failed to wait for fence!");
 
         self.allocator
@@ -189,7 +188,7 @@ impl TransferModule {
         copy_to_box(self.cpu_buffer_maps[1] as *const FftBuffer)
     }
 
-    // todo: this could be made a bit more efficient if only the relevant part of the frame is copied. This would involve perfoming the FFT here.
+    // todo: this could be made a bit more efficient if only the relevant part of the frame is copied. This would involve performing the FFT here.
     pub unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer) -> VkResult<(Box<GpuWindow>, Box<GpuWindow>)> {
         self.device.reset_fences(from_ref(&self.fence))?;
 

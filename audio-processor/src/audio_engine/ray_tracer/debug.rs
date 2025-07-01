@@ -3,6 +3,7 @@ use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, Dep
 use ash::Device;
 use crevice::std430::{Mat3, Vec3};
 use std::array::from_ref;
+use crate::util::workgroup_div;
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
 
@@ -130,7 +131,7 @@ impl DebugRayModule {
         }
     }
 
-    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, rotation: Mat3) {
+    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: usize, origin: Vec3, rotation: Mat3) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -162,9 +163,7 @@ impl DebugRayModule {
             core::slice::from_raw_parts((&rotation as *const Mat3) as *const u8, size_of::<Mat3>())
         );
 
-
-        let x_workgroups = (source_amt + 63) / 64; // rounds up
-        self.device.cmd_dispatch(*command_buffer, x_workgroups, 1, 1);
+        self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);
 
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches

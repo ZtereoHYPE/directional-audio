@@ -4,7 +4,7 @@ use crate::util::vec3::{MAX_VEC3, MIN_VEC3, ZERO};
 use crate::util::{vec3, Axis};
 use crevice::std430::{AsStd430, Vec3};
 
-const MAX_BVH_DEPTH: usize = 64;
+pub(crate) const MAX_BVH_DEPTH: usize = 64;
 const BVH_SPLIT_ATTEMPTS: usize = 8;
 
 #[derive(Clone)]

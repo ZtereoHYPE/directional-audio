@@ -1,12 +1,15 @@
 use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuWindow, InstanceBuffer, GPU_WINDOW_SIZE, MAX_INSTANCES};
-use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use std::array::from_ref;
+use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::{Alloc, Allocator};
 use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
+use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::scene::listener::hrtf_filter::HrtfFilter;
+use crate::util::workgroup_div;
 
 pub struct HrtfModule {
     device: Device,
@@ -29,6 +32,7 @@ impl HrtfModule {
         descriptor_pool: DescriptorPool,
         instance_buffer: Buffer,
         fft_ending_buffer: Buffer,
+        constants: SignalProcessorConstants,
     ) -> Self {
         let (mut output, output_memory) = {
             let buffer_info = BufferCreateInfo::default()
@@ -278,7 +282,12 @@ impl HrtfModule {
         };
 
         let (pipeline, pipeline_layout) = {
+            let push_constant_range = PushConstantRange::default()
+                .stage_flags(ShaderStageFlags::COMPUTE)
+                .size(4);
+
             let layout_info = PipelineLayoutCreateInfo::default()
+                .push_constant_ranges(from_ref(&push_constant_range))
                 .set_layouts(from_ref(&descriptor_set_layout));
 
             let layout = device
@@ -294,8 +303,16 @@ impl HrtfModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
+            let specialization_entries =
+                SignalProcessorConstants::get_entries(&[0, 1, 2, 5, 6, 7]); // select these constants
+
+            let specialization_info = SpecializationInfo::default()
+                .map_entries(&specialization_entries)
+                .data(constants.to_slice());
+
             let stage_info = PipelineShaderStageCreateInfo::default()
                 .stage(ShaderStageFlags::COMPUTE)
+                .specialization_info(&specialization_info)
                 .module(shader_module)
                 .name(c"main");
 
@@ -322,7 +339,7 @@ impl HrtfModule {
         }
     }
 
-    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer) {
+    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, instance_amt: usize) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -342,7 +359,9 @@ impl HrtfModule {
             panic!("Currently maximum 64 sources are supported!");
         }
 
-        let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, 1);
+        let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, workgroup_div(instance_amt, 64));
+
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, &instance_amt.to_ne_bytes());
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

@@ -5,7 +5,6 @@ use crate::audio_engine::GpuData;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, DeviceSize, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
-use std::u64::MAX;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 
 const STAGING_BUFFER_SIZE: u64 = 256 * 1024 * 1024; // 128 MB
@@ -233,7 +232,7 @@ impl BufferInitializer {
 
         // wait for fence
         device
-            .wait_for_fences(from_ref(&self.fence), true, MAX)
+            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
             .expect("Failed to wait for fence");
     }
 

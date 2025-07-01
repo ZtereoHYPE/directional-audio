@@ -1,47 +1,44 @@
 #version 460
 #extension GL_EXT_shader_atomic_float : enable  // atomics for floats
 #extension GL_KHR_shader_subgroup_arithmetic : enable // subgroup arithmetic
-
 #include "imports/utils.comp"
-
-layout(constant_id = 0) const int WINDOW_SIZE = 1024;
-layout(constant_id = 1) const int FRAME_SIZE = 512;
-layout(constant_id = 2) const int FILTER_SIZE = 1024;
-
-layout(constant_id = 3) const float MIN_ELEVATION = M_PI;
-layout(constant_id = 4) const float MAX_ELEVATION = 0;
-
-layout(constant_id = 5) const float SAMPLING_RATE = 44100;
-
-layout(constant_id = 6) const float INSTANCES = 1;
-
 
 // x = frequency, y = source
 layout(local_size_x = 1, local_size_y = 64, local_size_z = 1) in;
 
-layout(push_constant, std430) uniform Time {
-    uint frame_idx;
+
+layout(constant_id = 0) const uint WINDOW_SIZE = 1024;
+layout(constant_id = 1) const uint FRAME_SIZE = 512;
+layout(constant_id = 2) const uint FILTER_SIZE = 1024;
+
+layout(constant_id = 5) const float SAMPLING_RATE = 44100;
+
+layout(constant_id = 6) const float MIN_ELEVATION = M_PI;
+layout(constant_id = 7) const float MAX_ELEVATION = 0;
+
+
+layout(push_constant, std430) uniform PushConstants {
+    uint instance_amount;
 };
 
-// todo: could this be some more performant storage type
 layout(binding = 0, std430) readonly restrict buffer AudioInstances {
     Instance instances[];
 };
 
-layout(set = 0, binding = 1, std430) readonly restrict buffer FftOutput {
+layout(binding = 1, std430) readonly restrict buffer FftOutput {
     vec2 samples[];
 };
 
-layout(set = 0, binding = 2, std430) restrict buffer OutputLeft {
+layout(binding = 2, std430) restrict buffer OutputLeft {
     vec2 leftOutput[];
 };
 
-layout(set = 0, binding = 3, std430) restrict buffer OutputRight {
+layout(binding = 3, std430) restrict buffer OutputRight {
     vec2 rightOutput[];
 };
 
-layout(set = 0, binding = 4) uniform sampler3D hrtfLeft;
-layout(set = 0, binding = 5) uniform sampler3D hrtfRight;
+layout(binding = 4) uniform sampler3D hrtfLeft;
+layout(binding = 5) uniform sampler3D hrtfRight;
 
 // todo: log
 vec2 decode_polar_filter(vec3 polar) {
@@ -103,7 +100,7 @@ void main() {
     uint sample_idx = gl_GlobalInvocationID.x;
     uint instance_idx = gl_GlobalInvocationID.y;
     
-    if (instance_idx >= INSTANCES) return;
+    if (instance_idx >= instance_amount) return;
     
     Instance instance = instances[instance_idx];
     float dist = length(instance.direction);

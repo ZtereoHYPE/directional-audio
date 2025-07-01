@@ -1,6 +1,6 @@
 use crate::to_vec;
 use audio_processor::scene::source::file::FileAudioProvider;
-use audio_processor::scene::source::quiet::SilentAudioProfider;
+use audio_processor::scene::source::quiet::SilentAudioProvider;
 use audio_processor::scene::source::{AudioProvider, AudioSource};
 use godot::classes::ProjectSettings;
 use godot::obj::{Base, WithBaseField};
@@ -35,7 +35,7 @@ impl AudioSourceNode {
         let provider: Box<dyn AudioProvider + Send> =
             if !Path::new(&source_path).is_file() {
                 godot_warn!("An audio source does not have its source file set! It will play a silent stream");
-                Box::from(SilentAudioProfider)
+                Box::from(SilentAudioProvider)
             } else {
                 Box::from(FileAudioProvider::new(&source_path, self.loop_audio))
             };

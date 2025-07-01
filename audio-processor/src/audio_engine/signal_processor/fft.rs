@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_structures::{FftBuffer, FftConstants, FftUbo, GPU_WINDOW_SIZE};
+use crate::audio_engine::gpu_structures::{FftBuffer, FftUbo, GPU_WINDOW_SIZE};
 use crate::util::complex;
 use crate::util::complex::{root_of_unity, scalar_mult};
 use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
@@ -11,7 +11,7 @@ use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
 use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
-// todo: maybe use newtype pattern to refer to buffers?
+use crate::audio_engine::signal_processor::SignalProcessorConstants;
 
 pub(crate) const RADIX_AMT: usize = 3;
 pub(crate) const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
@@ -33,6 +33,16 @@ pub(crate) struct FftStage {
     pub(crate) stride: u32
 }
 
+#[repr(C)]
+struct FftConstants {
+    constants: SignalProcessorConstants,
+    radix: u32
+}
+
+impl FftConstants {
+    const SIZE: usize = size_of::<Self>();
+}
+
 pub(crate) struct FftModule {
     device: Device,
     pipelines: [Pipeline; RADIX_AMT], // todo: potentially move away from fixed-size arrays?
@@ -45,13 +55,14 @@ pub(crate) struct FftModule {
 }
 
 impl FftModule {
-    pub(crate) fn new(
+    pub(super) fn new(
         allocator: Rc<Allocator>,
         initializer: &mut BufferInitializer,
         device: Device,
         queue: (Queue, u32),
         descriptor_pool: DescriptorPool,
         stages: Vec<FftStage>,
+        constants: SignalProcessorConstants
     ) -> Self {
         let (fft_ubos, fft_ubo_memories) = unsafe {
             let buffer_info = BufferCreateInfo::default()
@@ -226,7 +237,6 @@ impl FftModule {
                 .create_pipeline_layout(&layout_info, None)
                 .expect("Failed to create pipeline layout");
 
-
             // The SPIR-V is the same for all pipelines
             let code_words = read_file_words("target/shaders/fft.comp.spv");
 
@@ -237,28 +247,12 @@ impl FftModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
-
-            // There is a specialization constant with a different value for each pipeline
-            let specialization_entries = [
-                SpecializationMapEntry::default()
-                    .constant_id(0)
-                    .offset(0)
-                    .size(size_of::<i32>()),
-
-                SpecializationMapEntry::default()
-                    .constant_id(1)
-                    .offset(4)
-                    .size(size_of::<i32>()),
-            ];
+            let specialization_entries =
+                SignalProcessorConstants::get_entries(&[0, 8]); // select these constants
 
             let constant_data = RADICES
                 .iter()
-                .map(|radix| {
-                    FftConstants {
-                        radix: *radix as i32,
-                        frame_size: GPU_WINDOW_SIZE as i32
-                    }
-                })
+                .map(|&radix| FftConstants { constants, radix })
                 .collect::<Vec<_>>();
 
             let specialization_infos: [_; RADIX_AMT] = constant_data
@@ -266,7 +260,7 @@ impl FftModule {
                 .map(|datum| {
                     SpecializationInfo::default()
                         .map_entries(&specialization_entries)
-                        .data(transmute::<_, &[u8; 8]>(datum))
+                        .data(transmute::<_, &[u8; FftConstants::SIZE]>(datum))
                 })
                 .collect::<Vec<_>>()
                 .try_into().unwrap();

@@ -17,12 +17,7 @@ pub(crate) struct FftUbo {
 }
 
 // todo: have buffers take ownership of (and even create) their own stuff!
-
-#[repr(C)]
-pub(crate) struct FftConstants {
-    pub(crate) radix: i32,
-    pub(crate) frame_size: i32
-}
+//       using the newtype pattern?
 
 
 pub(crate) struct FftBuffer {

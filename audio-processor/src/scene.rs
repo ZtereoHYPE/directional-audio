@@ -19,7 +19,6 @@ pub struct Scene {
 }
 
 impl Scene {
-    // todo: simplify this a bunch to take in a filter and SceneMesh should be gone and the scene itself should hold the triangles and the BVH probably
     pub fn new(sources: Vec<AudioSource>, triangles: Vec<Triangle>, hrtf_filter: HrtfFilter) -> Self {
         Self {
             mesh: SceneMesh::from_triangles(triangles),

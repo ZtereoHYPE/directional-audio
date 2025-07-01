@@ -3,20 +3,52 @@
 use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::gpu_structures::{InstanceBuffer, OutputBuffer, SourcesBuffer, MAX_SOURCES};
 use crate::audio_engine::ray_tracer::kmeans::{CentroidBuffer, KMeansModule, NeighboursBuffer};
-use crate::audio_engine::ray_tracer::rays::RayModule;
+use crate::audio_engine::ray_tracer::rays::{RayModule, SPHERE_POINTS};
 use crate::audio_engine::GpuData;
 use crate::scene::Scene;
-use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
+use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SpecializationMapEntry, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
 use crevice::std430::{Mat3, Vec3};
 use std::array::from_ref;
+use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 use crate::audio_engine::ray_tracer::debug::DebugRayModule;
+use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
 mod debug;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct RayTracerConstants {
+    point_amount: u32,
+    source_amount: u32,
+    max_bvh_depth: u32,
+    max_bounces: u32,
+    kmeans_centroids: u32,
+}
+
+impl RayTracerConstants {
+    const SIZE: usize = size_of::<RayTracerConstants>();
+
+    // warning: this assumes that all fields are 4 in size
+    fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
+        entries
+            .into_iter()
+            .map(|&idx| SpecializationMapEntry::default()
+                .constant_id(idx)
+                .offset(4 * idx)
+                .size(4)
+            )
+            .collect()
+    }
+
+    unsafe fn to_slice(&self) -> &[u8; Self::SIZE] {
+        transmute(self)
+    }
+}
 
 pub(crate) struct RayTracer {
     device: Device,
@@ -46,6 +78,14 @@ impl RayTracer {
         async_queue: (Queue, u32),
         buffer_initializer: &mut BufferInitializer
     ) -> Self {
+        let constants = RayTracerConstants {
+            point_amount: SPHERE_POINTS as u32,
+            source_amount: MAX_SOURCES as u32,
+            max_bvh_depth: MAX_BVH_DEPTH as u32,
+            max_bounces: 4,
+            kmeans_centroids: 8,
+        };
+
         let buffer_allocator = unsafe {
             let allocator_create_info = AllocatorCreateInfo::new(
                 instance,
@@ -264,7 +304,8 @@ impl RayTracer {
             bvh_buffer,
             triangle_buffer,
             rt_output_buffer,
-            async_queue.0
+            async_queue.0,
+            constants
         );
 
         let cluster_module = KMeansModule::new(
@@ -275,6 +316,7 @@ impl RayTracer {
             neighbours_buffer,
             instance_buffer,
             async_queue.0,
+            constants
         );
 
         let debug_module = DebugRayModule::new(
@@ -396,7 +438,7 @@ impl RayTracer {
         self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
 
         // Trace the rays
-        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, last_rt_rot);
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES, last_rt_pos, last_rt_rot);
 
         // Submit the command buffer
         self.device

@@ -180,6 +180,20 @@ pub mod complex {
     }
 }
 
+pub fn rotation_matrix(pitch: f32, yaw: f32) -> Mat3 {
+    let mut mat = Mat3::zeroed();
+
+    mat.x = vec3::from(yaw.cos(), 0.0, yaw.sin() * pitch.cos());
+    mat.y = vec3::from(0.0, pitch.cos(), -pitch.sin());
+    mat.z = vec3::from(-yaw.sin(), pitch.sin(), yaw.cos() * pitch.cos());
+
+    mat
+}
+
+pub fn workgroup_div(instances: usize, warp_size: usize) -> u32 {
+    ((instances + warp_size - 1) / warp_size) as u32
+}
+
 #[cfg(test)]
 mod vec3_tests {
     use crevice::std430::{Vec2, Vec3};
@@ -353,14 +367,4 @@ mod complex_tests {
             complex::amplitude(simple_lerp), complex::phase(simple_lerp)
         );
     }
-}
-
-pub fn rotation_matrix(pitch: f32, yaw: f32) -> Mat3 {
-    let mut mat = Mat3::zeroed();
-
-    mat.x = vec3::from(yaw.cos(), 0.0, yaw.sin() * pitch.cos());
-    mat.y = vec3::from(0.0, pitch.cos(), -pitch.sin());
-    mat.z = vec3::from(-yaw.sin(), pitch.sin(), yaw.cos() * pitch.cos());
-
-    mat
 }

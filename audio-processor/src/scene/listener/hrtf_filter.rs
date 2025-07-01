@@ -1,10 +1,10 @@
-use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::GpuData;
 use crevice::std430::{Vec2, Vec3};
 use crevice::std430::Vec4;
 use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
 use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
+use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::util::{complex, vec3};
 
 #[derive(Clone)]

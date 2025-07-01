@@ -4,7 +4,6 @@ pub mod quiet;
 
 use crate::audio_engine::gpu_structures::GpuFrame;
 use crevice::std430::Vec3;
-use rand::Rng;
 
 pub const FRAME_SIZE: usize = 512;
 pub type Frame = [f32; FRAME_SIZE];

@@ -2,11 +2,10 @@
 #version 460
 #extension GL_EXT_scalar_block_layout : enable
 
-// todo: these should be specification constants
-const uint POINT_AMOUNT = 1024;
-const uint MAX_BVH_DEPTH = 64;
-const uint MAX_BOUNCES = 4;
-const uint SOURCE_AMOUNT = 1;
+layout(constant_id = 0) const uint POINT_AMOUNT = 1024;
+layout(constant_id = 1) const uint SOURCE_AMOUNT = 1;
+layout(constant_id = 2) const uint MAX_BVH_DEPTH = 64;
+layout(constant_id = 3) const uint MAX_BOUNCES = 4;
 
 const float PHI = radians(180) * (sqrt(5.0) - 1);
 const float EPSILON = 0.0001;

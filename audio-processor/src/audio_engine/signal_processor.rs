@@ -7,7 +7,7 @@ pub mod transfer;
 mod delay;
 
 use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{DelayBuffer, DownloadBuffer, FftBuffer, FftConstants, FftUbo, GpuFrame, GpuWindow, InstanceBuffer, UploadBuffer, GPU_WINDOW_SIZE, MAX_SOURCES};
+use crate::audio_engine::gpu_structures::{DelayBuffer, DownloadBuffer, FftBuffer, FftUbo, GpuFrame, GpuWindow, InstanceBuffer, UploadBuffer, GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
 use crate::audio_engine::signal_processor::delay::DelayModule;
 use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
@@ -24,7 +24,40 @@ use std::rc::Rc;
 use std::slice::from_ref;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 use crate::scene::listener::AudioListener;
-use crate::scene::source::AudioSource;
+use crate::scene::source::{AudioSource, FRAME_SIZE};
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct SignalProcessorConstants {
+    window_size: u32,
+    frame_size: u32,
+    filter_size: u32,
+    delay_buffer_size: u32,
+    pipelined_frames: u32,
+    sampling_rate: f32,
+    min_elevation: f32,
+    max_elevation: f32
+}
+
+impl SignalProcessorConstants {
+    const SIZE: usize = size_of::<SignalProcessorConstants>();
+
+    // warning: this assumes that all fields are 4 in size
+    fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
+        entries
+            .into_iter()
+            .map(|&idx| SpecializationMapEntry::default()
+                .constant_id(idx)
+                .offset(4 * idx)
+                .size(4)
+            )
+            .collect()
+    }
+
+    unsafe fn to_slice(&self) -> &[u8; Self::SIZE] {
+        transmute(self)
+    }
+}
 
 pub struct SignalProcessor {
     device: Device,
@@ -57,6 +90,16 @@ impl SignalProcessor {
         buffer_initializer: &mut BufferInitializer
     ) -> Self {
         let stages = FftModule::fft_stages(GPU_WINDOW_SIZE);
+        let constants = SignalProcessorConstants {
+            window_size: GPU_WINDOW_SIZE as u32,
+            frame_size: FRAME_SIZE as u32,
+            filter_size: GPU_WINDOW_SIZE as u32,
+            delay_buffer_size: (MAX_DELAY_FRAMES * FRAME_SIZE) as u32,
+            pipelined_frames: 0, // todo: do not hardcode these
+            sampling_rate: 44100.0,
+            min_elevation: PI,
+            max_elevation: 0.0
+        };
 
         let buffer_allocator = {
             let allocator_create_info = AllocatorCreateInfo::new(
@@ -161,7 +204,8 @@ impl SignalProcessor {
             device.clone(),
             compute_queue.clone(),
             descriptor_pool,
-            stages
+            stages,
+            constants
         );
 
         let delay_module = DelayModule::new(
@@ -171,7 +215,8 @@ impl SignalProcessor {
             compute_queue.clone(),
             descriptor_pool,
             instance_buffer,
-            fft_module.starting_buffer()
+            fft_module.starting_buffer(),
+            constants,
         );
 
         let hrtf_module = HrtfModule::new(
@@ -182,7 +227,8 @@ impl SignalProcessor {
             compute_queue.clone(),
             descriptor_pool,
             instance_buffer,
-            fft_module.starting_buffer() // todo: this is hardcoded for the size
+            fft_module.starting_buffer(), // todo: this is hardcoded for the size
+            constants
         );
 
         let transfer_module = TransferModule::new(
@@ -214,7 +260,7 @@ impl SignalProcessor {
         }
     }
 
-    pub unsafe fn process_frames(&mut self, listener: &AudioListener, sources: &mut Vec<AudioSource>, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
+    pub unsafe fn process_frames(&mut self, listener: &AudioListener, sources: &mut Vec<AudioSource>, instance_amt: usize, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
         self.transfer_module
             .upload_new_frames(&mut self.compute_command_buffer, sources, self.counter)
@@ -231,7 +277,7 @@ impl SignalProcessor {
         self.hrtf_module.wipe_output(&mut self.compute_command_buffer);
 
         // perform HRTF dsp
-        self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer);
+        self.hrtf_module.apply_hrtf(&mut self.compute_command_buffer, instance_amt);
 
         // transfer data back
         let (left_window, right_window) = self.transfer_module

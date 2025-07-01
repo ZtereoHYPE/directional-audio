@@ -201,6 +201,7 @@ impl AudioEngine {
             let (left, right) = self.signal_processor.process_frames(
                 &self.scene.listener,
                 &mut self.scene.sources,
+                1, // todo: obtain this from ray tracing 
                 self.ray_tracer.get_last_rt_pos()
             );
 
@@ -210,27 +211,6 @@ impl AudioEngine {
             )
         }
     }
-
-    // pub(crate) fn get_fft(&mut self) -> (GpuWindow, GpuWindow) {
-    //     unsafe {
-    //         // self.ray_tracer.trace_rays(&self.scene);
-    //         self.ray_tracer.copy_sources_debug(&self.scene);
-    // 
-    //         let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
-    //         let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
-    // 
-    //         self.buffer_initializer.copy_buffer(
-    //             &self.device,
-    //             self.compute_queue,
-    //             &mut src_audio_instances,
-    //             &mut dst_audio_instances,
-    //             InstanceBuffer::max_size() as DeviceSize
-    //         );
-    // 
-    //         let last_rt_pos = self.ray_tracer.get_last_rt_pos();
-    //         self.signal_processor.get_fft(&mut self.scene, last_rt_pos)
-    //     }
-    // }
 
     pub(crate) fn update_listener(&mut self, new_location: Vec3, new_rotation: Mat3) {
         self.scene.listener.location = new_location;

@@ -24,30 +24,31 @@
 */
 
 #version 450
-
-const float M_PI = radians(180);
-const float M_SQRT1_2 = 1.0 / sqrt(2.0);
-
-// todo: more more of these (including layout) to spec constants
-const int MAX_RADIX = 8;
-layout(constant_id = 0) const int RADIX = 8;
-layout(constant_id = 1) const int WINDOW_SIZE = 1024;
+#include "imports/utils.comp"
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-layout(binding = 0, set = 0) uniform UBO {
+
+layout(constant_id = 0) const uint WINDOW_SIZE = 1024;
+layout(constant_id = 8) const uint RADIX = 8;
+
+const int MAX_RADIX = 8;
+const uint RADIX_STRIDE = WINDOW_SIZE / RADIX;
+
+
+layout(binding = 0) uniform UBO {
     uint splitSize;
-    uint radixStride; //todo: replacce this with FRAME_SIZE / RADIX
+    uint radixStride; // todo: remove this as it's replaced by the const
     float directionFactor;
     float angleFactor;
     float normalizationFactor;
 } ubo;
 
-layout(binding = 1, set = 0, std430) readonly restrict buffer DataIn {
+layout(binding = 1, std430) readonly restrict buffer DataIn {
     vec2 values[];
 } dataIn;
 
-layout(binding = 2, set = 0, std430) writeonly restrict buffer DataOut {
+layout(binding = 2, std430) writeonly restrict buffer DataOut {
     vec2 values[];
 } dataOut;
 
@@ -126,7 +127,7 @@ void main() {
 
     vec2 values[MAX_RADIX];
     for (uint i = 0; i < RADIX; ++i)
-        values[i] = dataIn.values[gl_GlobalInvocationID.x + i * ubo.radixStride + WINDOW_SIZE * gl_GlobalInvocationID.y];
+        values[i] = dataIn.values[gl_GlobalInvocationID.x + i * RADIX_STRIDE + WINDOW_SIZE * gl_GlobalInvocationID.y];
 
     // branch eliminated by specialization constants (hopefully)
     if (RADIX == 2) {

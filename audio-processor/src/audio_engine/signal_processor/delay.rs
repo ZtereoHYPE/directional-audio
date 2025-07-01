@@ -1,12 +1,14 @@
 use crate::audio_engine::gpu_structures::{DelayBuffer, InstanceBuffer, GPU_WINDOW_SIZE};
-use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::{Std430, Vec3};
 use std::array::from_ref;
+use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateInfo, Allocator, MemoryUsage};
 use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
+use crate::audio_engine::signal_processor::SignalProcessorConstants;
 
 pub(crate) struct DelayModule {
     device: Device,
@@ -28,6 +30,7 @@ impl DelayModule {
         descriptor_pool: DescriptorPool,
         instance_buffer: Buffer,
         fft_starting_buffer: Buffer,
+        constants: SignalProcessorConstants,
     ) -> Self {
         let (mut delay_buffer, delay_buffer_memory) = unsafe {
             let buffer_info = BufferCreateInfo::default()
@@ -148,6 +151,13 @@ impl DelayModule {
             let shader_module = device
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
+
+            let specialization_entries =
+                SignalProcessorConstants::get_entries(&[0, 1, 3, 4, 5]); // select these constants
+
+            let specialization_info = SpecializationInfo::default()
+                .map_entries(&specialization_entries)
+                .data(constants.to_slice());
 
             let stage_info = PipelineShaderStageCreateInfo::default()
                 .stage(ShaderStageFlags::COMPUTE)
