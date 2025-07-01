@@ -21,12 +21,16 @@ const SAMPLE_RATE: f64 = 44100.0;
 #[derive(GodotClass)]
 #[class(base=Node3D)]
 pub struct AudioListenerNode {
+    #[export]
+    enabled: bool,
     #[export(file = "*.sofa")]
     hrtf_filter: GString,
     #[export]
     export_audio: bool,
     #[export]
     max_frames_ahead: u32,
+
+    volume: f32,
 
     accumulated_samples: Vec<Vector2>,
     allowed_samples: f64,
@@ -53,9 +57,11 @@ impl INode3D for AudioListenerNode {
         audio_stream_player.set_stream(&generator);
 
         Self {
+            enabled: true,
             hrtf_filter: GString::from(""),
             export_audio: false,
             max_frames_ahead: 5,
+            volume: 0.75,
             accumulated_samples: vec![],
             allowed_samples: 5.0,
             last_position: Vector3::ZERO,
@@ -68,12 +74,11 @@ impl INode3D for AudioListenerNode {
 
     // Gets called every frame
     fn process(&mut self, delta: f64) {
-        self.allowed_samples += delta * SAMPLE_RATE / FRAME_SIZE as f64;
-
         if self.audio_engine.is_none() {
             return;
         }
         let engine = self.audio_engine.as_ref().unwrap();
+        self.allowed_samples += delta * SAMPLE_RATE / FRAME_SIZE as f64;
 
         // Push new frames to playback
         if let Some(playback) = &self.audio_stream_player.get_stream_playback() {
@@ -85,7 +90,7 @@ impl INode3D for AudioListenerNode {
             let frames = engine.get_frames(max_frames)
                 .iter()
                 .flat_map(|(l, r)| l.iter().zip(r))
-                .map(|(&l, &r)| Vector2::new(l, r))
+                .map(|(&l, &r)| Vector2::new(l * self.volume, r * self.volume))
                 .collect::<PackedVector2Array>();
 
             playback.push_buffer(&frames);
@@ -122,6 +127,10 @@ impl INode3D for AudioListenerNode {
     }
 
     fn exit_tree(&mut self) {
+        if !self.enabled {
+            return;
+        }
+
         if self.export_audio {
             let spec = hound::WavSpec {
                 channels: 2,
@@ -143,9 +152,12 @@ impl INode3D for AudioListenerNode {
 
     // Gets called after the node structure has "stabilized"
     fn ready(&mut self) {
+        if !self.enabled {
+            return;
+        }
+
         self.allowed_samples = self.max_frames_ahead as f64;
 
-        // self.audio_stream_player.play();
         let hrtf_path = ProjectSettings::singleton().globalize_path(&self.hrtf_filter).to_string();
         if !Path::new(&hrtf_path).is_file() {
             godot_warn!("The listener has no HRTF filter set!");
@@ -195,5 +207,13 @@ impl INode3D for AudioListenerNode {
 
         // Start the playback
         self.audio_stream_player.play();
+    }
+}
+
+#[godot_api]
+impl AudioListenerNode {
+    #[func]
+    fn on_volume_change(&mut self, volume: f32) {
+        self.volume = volume / 100.0;
     }
 }

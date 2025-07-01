@@ -1,7 +1,19 @@
-[gd_scene load_steps=8 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=16 format=4 uid="uid://u8slr1sr2sxb"]
 
 [ext_resource type="PackedScene" uid="uid://bs72ogkvdd7d6" path="res://addons/proto_controller/proto_controller.tscn" id="1_6fmou"]
-[ext_resource type="Texture2D" uid="uid://c72lqe2pq4p1a" path="res://speaker.png" id="2_s3eio"]
+[ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_icnq2"]
+[ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://scripts/slider_label.gd" id="2_a6ww5"]
+[ext_resource type="Texture2D" uid="uid://c72lqe2pq4p1a" path="res://assets/speaker.png" id="2_s3eio"]
+[ext_resource type="Script" uid="uid://djmwklw6hpghb" path="res://scripts/debug_panel.gd" id="3_2gwym"]
+[ext_resource type="Script" uid="uid://bogt0ewoml0pc" path="res://addons/orbit_camera/orbit_camera.gd" id="6_lx530"]
+[ext_resource type="Script" uid="uid://8d5i3x7net1n" path="res://scripts/orbitater.gd" id="6_viom0"]
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_a6ww5"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_a6ww5"]
+bg_color = Color(0, 0, 0, 0.470588)
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_2gwym"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_6fmou"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -32,14 +44,219 @@ _surfaces = [{
 
 [node name="Root" type="Node3D"]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="GUI" type="CanvasLayer" parent="."]
+
+[node name="Main Panel" type="PanelContainer" parent="GUI"]
+offset_right = 233.0
+offset_bottom = 133.0
+theme = ExtResource("1_icnq2")
+theme_override_styles/panel = SubResource("StyleBoxEmpty_a6ww5")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="Volume Panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+text = "Volume"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Volume Slider" type="HSlider" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 1
+theme = ExtResource("1_icnq2")
+value = 75.0
+
+[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer/HBoxContainer"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+size_flags_vertical = 1
+text = "75%"
+horizontal_alignment = 2
+script = ExtResource("2_a6ww5")
+
+[node name="Options Panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Options"
+
+[node name="Rays Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+text = "Show Rays"
+
+[node name="Bubble Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+text = "Show Bubble"
+
+[node name="Debug Panel Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+text = "Debug Panel"
+
+[node name="View panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+
+[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "View"
+
+[node name="Person Selector" type="OptionButton" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+selected = 0
+item_count = 2
+popup/item_0/text = "First Person"
+popup/item_0/id = 0
+popup/item_1/text = "Third Person"
+popup/item_1/id = 1
+
+[node name="Debug Panel" type="PanelContainer" parent="GUI"]
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -368.0
+grow_horizontal = 0
+grow_vertical = 2
+theme = ExtResource("1_icnq2")
+theme_override_styles/panel = SubResource("StyleBoxFlat_a6ww5")
+script = ExtResource("3_2gwym")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel"]
+layout_mode = 2
+
+[node name="HSeparator" type="HSeparator" parent="GUI/Debug Panel/VBoxContainer"]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+theme_override_styles/separator = SubResource("StyleBoxEmpty_2gwym")
+
+[node name="Label" type="Label" parent="GUI/Debug Panel/VBoxContainer"]
+layout_mode = 2
+theme_type_variation = &"HeaderSmall"
+text = "Debug Panel"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="GUI/Debug Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Source Relative Locations" type="PanelContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations"]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Relative Source Locations:"
+
+[node name="Label2" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+theme_type_variation = &"TooltipLabel"
+text = "Source 1: [0, 0, 0] ..."
+
+[node name="Label3" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+theme_type_variation = &"TooltipLabel"
+text = "Source 1: [0, 0, 0] ..."
+
+[node name="Label4" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+theme_type_variation = &"TooltipLabel"
+text = "Source 1: [0, 0, 0] ..."
+
+[node name="Label5" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+theme_type_variation = &"TooltipLabel"
+text = "Source 1: [0, 0, 0] ..."
+
+[node name="Label6" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+theme_type_variation = &"TooltipLabel"
+text = "Source 1: [0, 0, 0] ..."
+
+[node name="Timings" type="PanelContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Timings"]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Timings/MarginContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Timings/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Timings:"
+
+[node name="3D Scene" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.24801, 0, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="3D Scene"]
 environment = SubResource("Environment_icnq2")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(-0.72252, -0.550055, 0.418813, 0.150748, 0.465867, 0.871919, -0.674714, 0.693114, -0.253678, 8.21096, 23.6356, -3.3754)
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="3D Scene"]
+transform = Transform3D(-0.72252, -0.550055, 0.418813, 0.150748, 0.465867, 0.871919, -0.674714, 0.693115, -0.253679, 8.21096, 23.6356, -3.3754)
 shadow_enabled = true
 
-[node name="Player" parent="." instance=ExtResource("1_6fmou")]
+[node name="Player" parent="3D Scene" instance=ExtResource("1_6fmou")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.100533, 0.640606, 3.21162)
 can_freefly = true
 input_left = "move_left"
@@ -47,23 +264,39 @@ input_right = "move_right"
 input_forward = "move_forward"
 input_back = "move_backwards"
 
-[node name="AudioMeshNode" type="AudioMeshNode" parent="."]
+[node name="AudioMeshNode" type="AudioMeshNode" parent="3D Scene"]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="AudioMeshNode"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="3D Scene/AudioMeshNode"]
 shape = SubResource("ConcavePolygonShape3D_6fmou")
 
-[node name="Baked mesh" type="MeshInstance3D" parent="AudioMeshNode"]
-transform = Transform3D(0.966308, 0, 0, 0, 0.966308, 0, 0, 0, 0.966308, 0, 0, 0)
+[node name="Baked mesh" type="MeshInstance3D" parent="3D Scene/AudioMeshNode"]
 mesh = SubResource("ArrayMesh_6fmou")
-skeleton = NodePath("../..")
+skeleton = NodePath("../../..")
 
-[node name="AudioSourceNode" type="AudioSourceNode" parent="."]
+[node name="AudioSourceNode" type="AudioSourceNode" parent="3D Scene"]
 audio_file = "uid://chh4xvc6nafqi"
 loop_audio = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.84842, -6.59833)
 
-[node name="Sprite3D" type="Sprite3D" parent="AudioSourceNode"]
+[node name="Sprite3D" type="Sprite3D" parent="3D Scene/AudioSourceNode"]
 transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 0, 0)
 billboard = 1
 texture_filter = 1
 texture = ExtResource("2_s3eio")
+
+[node name="orbitater" type="Node3D" parent="3D Scene"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.46017, 3.66763, 11.192)
+script = ExtResource("6_viom0")
+
+[node name="OrbitCamera" type="Camera3D" parent="3D Scene/orbitater"]
+script = ExtResource("6_lx530")
+SCROLL_SPEED = 300.0
+ROTATE_SPEED = 1.0
+ANCHOR_NODE_PATH = NodePath("..")
+metadata/_custom_type_script = "uid://bogt0ewoml0pc"
+
+[connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer/HBoxContainer/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer/HBoxContainer/Label" method="_on_h_slider_value_changed"]
+[connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Volume Panel/MarginContainer/VBoxContainer/HBoxContainer/Volume Slider" to="3D Scene/Player" method="_on_h_slider_value_changed"]
+[connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer/Debug Panel Checkbox" to="GUI/Debug Panel" method="_on_debug_panel_checkbox_toggled"]
+[connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
+[connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/orbitater" method="_on_person_selector_item_selected"]

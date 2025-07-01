@@ -3,12 +3,12 @@
 importer="wav"
 type="AudioStreamWAV"
 uid="uid://dhg2lnxohwpvf"
-path="res://.godot/imported/sample-12s.wav-887fd6b54f03416e9a6b544dad69eae1.sample"
+path="res://.godot/imported/sample-12s.wav-7f8a19a24f26dc634b1fa7bc8afedb71.sample"
 
 [deps]
 
-source_file="res://audio/sample-12s.wav"
-dest_files=["res://.godot/imported/sample-12s.wav-887fd6b54f03416e9a6b544dad69eae1.sample"]
+source_file="res://assets/audio/sample-12s.wav"
+dest_files=["res://.godot/imported/sample-12s.wav-7f8a19a24f26dc634b1fa7bc8afedb71.sample"]
 
 [params]
 
