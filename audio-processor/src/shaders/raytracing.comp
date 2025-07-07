@@ -61,6 +61,7 @@ struct Output {
 
 layout(push_constant, std430) uniform Camera {
     vec3 origin;
+    bool store_rays;
 } camera;
 
 // todo: this could be a uniform; the access is coherent within a warp
@@ -80,6 +81,9 @@ layout(std430, binding = 3) writeonly buffer OutputBuffer {
     Output outputs[];
 };
 
+layout(std430, binding = 3) writeonly buffer RayBuffer {
+    vec4 rays[];
+};
 
 
 //////////////////////////////////////////
@@ -211,6 +215,11 @@ HitRecord hit_meshes(Ray ray) {
     return hit;
 }
 
+void store_ray(uint point_idx, uint source_idx, uint bounce, vec3 coords) {
+    if (camera.store_rays)
+        rays[source_idx * POINT_AMOUNT * MAX_BOUNCES + point_idx * MAX_BOUNCES + bounce] = vec4(coords, 1);
+}
+
 void main() {
     uint point_idx = gl_GlobalInvocationID.x;
     uint source_idx = gl_GlobalInvocationID.y;
@@ -231,6 +240,8 @@ void main() {
     output_.found_source = false;
 
     for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
+        store_ray(point_idx, source_idx, bounce, vec3(1, 0.5, 0.25));
+
         // Check if the source is visible
         vec3 src_direction = source - main_ray.origin;
         Ray shadow_ray;
@@ -242,6 +253,11 @@ void main() {
         if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
             output_.found_source = true;
             output_.total_distance += length(src_direction);
+            store_ray(point_idx, source_idx, bounce, source);
+            break;
+
+        // Else, if we're at the last bounce we can stop now
+        } else if (bounce == MAX_BOUNCES - 1) {
             break;
         }
 
@@ -249,6 +265,8 @@ void main() {
         HitRecord mesh_hit = hit_meshes(main_ray);
         if (!mesh_hit.did_hit)
             break;
+
+        store_ray(point_idx, source_idx, bounce, mesh_hit.pos);
 
         // If it's the first bounce, make sure to update the location to include the distance.
         if (bounce == 0) {

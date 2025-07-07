@@ -1,20 +1,23 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{InstanceBuffer, OutputBuffer, SourcesBuffer, MAX_SOURCES};
+use crate::audio_engine::gpu_structures::{AudioInstance, FromMemoryMap, InstanceBuffer, OutputBuffer, SourcesBuffer, MAX_INSTANCES, MAX_SOURCES};
 use crate::audio_engine::ray_tracer::kmeans::{CentroidBuffer, KMeansModule, NeighboursBuffer};
-use crate::audio_engine::ray_tracer::rays::{RayModule, SPHERE_POINTS};
+use crate::audio_engine::ray_tracer::rays::{RayBuffer, RayModule, SPHERE_POINTS};
 use crate::audio_engine::GpuData;
 use crate::scene::Scene;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SpecializationMapEntry, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
-use crevice::std430::{Mat3, Vec3};
+use crevice::std430::{Mat3, Vec3, Vec4};
 use std::array::from_ref;
 use std::mem::transmute;
 use std::rc::Rc;
+use ash::prelude::VkResult;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 use crate::audio_engine::ray_tracer::debug::DebugRayModule;
+use crate::audio_engine::signal_processor::transfer::copy_to_box;
 use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
+use crate::util::vec3;
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
@@ -50,15 +53,16 @@ impl RayTracerConstants {
     }
 }
 
+pub struct RtDebugData {
+    pub rays: Box<RayBuffer>,
+    pub instances: Box<InstanceBuffer>
+}
+
 pub(crate) struct RayTracer {
     device: Device,
     buffer_allocator: Rc<Allocator>,
     async_queue: (Queue, u32),
     command_buffer: CommandBuffer,
-    instance_buffer: Buffer,
-    sources_buffer: Buffer,
-    staging_sources_buffer: Buffer,
-    staging_sources_map: *mut u8,
     fence: Fence,
 
     ray_module: RayModule,
@@ -139,158 +143,6 @@ impl RayTracer {
                 .expect("Failed to create descriptor pool")
         };
 
-        let (sources_buffer, sources_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(SourcesBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (staging_sources_buffer, staging_sources_mem, staging_sources_map) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(SourcesBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferHost,
-                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
-                ..Default::default()
-            };
-
-            let (buffer, mut memory) = buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer");
-
-            let map = buffer_allocator
-                .map_memory(&mut memory)
-                .expect("Failed to map memory");
-
-            (buffer, memory, map)
-        };
-
-        let (mut bvh_buffer, bvh_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(scene.mesh.bvh.size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (mut triangle_buffer, triangle_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(scene.mesh.triangles.size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        unsafe {
-            buffer_initializer.upload_buffer_onetime(&device, async_queue.0, scene.mesh.bvh.clone(), &mut bvh_buffer);
-            buffer_initializer.upload_buffer_onetime(&device, async_queue.0, scene.mesh.triangles.clone(), &mut triangle_buffer);
-        }
-
-        let (rt_output_buffer, rt_output_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(OutputBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (neighbours_buffer, neighbours_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(NeighboursBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (mut centroid_buffer, centroid_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(CentroidBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-        unsafe {
-            let buffer_data = CentroidBuffer::from_initial_centroids(KMeansModule::initial_centroids());
-            buffer_initializer.upload_buffer_onetime(&device, async_queue.0, buffer_data, &mut centroid_buffer);
-        }
-
-        let (instance_buffer, centroid_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(InstanceBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER) // todo: remove TRANSFER_SRC
-                .queue_family_indices(from_ref(&async_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
         let fence = unsafe {
             device
                 .create_fence(&FenceCreateInfo::default(), None)
@@ -298,32 +150,30 @@ impl RayTracer {
         };
 
         let ray_module = RayModule::new(
+            buffer_allocator.clone(),
+            buffer_initializer,
             device.clone(),
             descriptor_pool,
-            sources_buffer,
-            bvh_buffer,
-            triangle_buffer,
-            rt_output_buffer,
-            async_queue.0,
+            async_queue.clone(),
+            scene,
             constants
         );
 
         let cluster_module = KMeansModule::new(
+            buffer_allocator.clone(),
+            buffer_initializer,
             device.clone(),
             descriptor_pool,
-            rt_output_buffer,
-            centroid_buffer,
-            neighbours_buffer,
-            instance_buffer,
-            async_queue.0,
+            ray_module.output_buffer(),
+            async_queue,
             constants
         );
 
         let debug_module = DebugRayModule::new(
             device.clone(),
             descriptor_pool,
-            sources_buffer,
-            instance_buffer,
+            ray_module.sources_buffer(),
+            cluster_module.instance_buffer(),
             async_queue.0
         );
 
@@ -335,10 +185,6 @@ impl RayTracer {
             buffer_allocator,
             async_queue,
             command_buffer,
-            instance_buffer,
-            sources_buffer,
-            staging_sources_buffer,
-            staging_sources_map,
             fence,
 
             ray_module,
@@ -350,62 +196,73 @@ impl RayTracer {
         }
     }
 
-    // todo: refactor to split that
-    fn init_buffers(&mut self) {
-
-    }
-
-    pub(super) unsafe fn trace_rays(&mut self, scene: &Scene) {
+    pub(super) unsafe fn trace_rays(&mut self, scene: &Scene, store_rays: bool) -> VkResult<()> {
         let last_rt_pos = scene.listener.location;
-        self.device
-            .reset_fences(from_ref(&self.fence))
-            .expect("Failed to reset raytracer fence!");
-        
+        self.device.reset_fences(from_ref(&self.fence))?;
+
         // Begin the command buffer
-        self.device
-            .reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())
-            .expect("Failed to reset command buffer");
+        self.device.reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())?;
 
         let begin_info = CommandBufferBeginInfo::default()
             .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
-        self.device
-            .begin_command_buffer(self.command_buffer, &begin_info)
-            .expect("Failed to begin command buffer recording");
+        self.device.begin_command_buffer(self.command_buffer, &begin_info)?;
 
-        // Stage the new coordinates
-        SourcesBuffer::from_memory_map(self.staging_sources_map).copy_coordinates(scene);
-
-        // todo: invalidate the allocation
-
-        // Copy from staging buffer
-        let region = BufferCopy::default().size(SourcesBuffer::max_size() as DeviceSize);
-        self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
+        // Stage the sources
+        self.ray_module.stage_sources(&mut self.command_buffer, &scene.sources);
 
         // Trace the rays
-        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos);
+        let ray_buffer = self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, store_rays);
 
         // Cluster the rays with kmeans
         self.cluster_module.cluster_rays(&mut self.command_buffer, MAX_SOURCES as u32);
 
         // Submit the command buffer
-        self.device
-            .end_command_buffer(self.command_buffer)
-            .expect("Failed to end command buffer!");
+        self.device.end_command_buffer(self.command_buffer)?;
 
         let submit_info = SubmitInfo::default()
             .command_buffers(from_ref(&self.command_buffer));
 
-        self.device
-            .queue_submit(self.async_queue.0, &[submit_info], self.fence)
-            .expect("Failed to submit command buffer");
+        self.device.queue_submit(self.async_queue.0, &[submit_info], self.fence)?;
 
         // Wait for it to execute
-        self.device
-            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
-            .expect("Failed to wait for fence!");
+        self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
 
         self.last_rt_pos = last_rt_pos; // update it only once it's fully done
+
+        Ok(())
+    }
+
+    pub(super) unsafe fn download_debug_data(&mut self) -> VkResult<RtDebugData> {
+        self.device.reset_fences(from_ref(&self.fence))?;
+
+        // Begin the command buffer
+        self.device.reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())?;
+
+        let begin_info = CommandBufferBeginInfo::default()
+            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        self.device.begin_command_buffer(self.command_buffer, &begin_info)?;
+
+        let ray_buffer = self.ray_module.copy_ray_buffer(&mut self.command_buffer);
+        // self.cluster_module.copy_instance_buffer(&mut self.command_buffer);
+
+        // Submit the command buffer
+        // self.device.end_command_buffer(self.command_buffer)?;
+        //
+        // let submit_info = SubmitInfo::default()
+        //     .command_buffers(from_ref(&self.command_buffer));
+        //
+        // self.device.queue_submit(self.async_queue.0, &[submit_info], self.fence)?;
+        //
+        // // Wait for it to execute
+        // self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
+
+        let instance_buffer = self.cluster_module.get_local_instance_buffer();
+        Ok(RtDebugData {
+            rays: ray_buffer.to_local_copy(),
+            instances: instance_buffer.to_local_copy()
+        })
     }
 
     pub(super) unsafe fn copy_sources_debug(&mut self, scene: &Scene) {
@@ -429,16 +286,10 @@ impl RayTracer {
             .expect("Failed to begin command buffer recording");
 
         // Stage the new coordinates
-        SourcesBuffer::from_memory_map(self.staging_sources_map).copy_coordinates(scene);
-
-        // todo: invalidate the allocation
-
-        // Copy from staging buffer
-        let region = BufferCopy::default().size(SourcesBuffer::max_size() as DeviceSize);
-        self.device.cmd_copy_buffer(self.command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
+        self.ray_module.stage_sources(&mut self.command_buffer, &scene.sources);
 
         // Trace the rays
-        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES, last_rt_pos, last_rt_rot);
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, last_rt_rot);
 
         // Submit the command buffer
         self.device
@@ -461,11 +312,11 @@ impl RayTracer {
         self.last_rt_rot = last_rt_rot;
     }
 
-    pub(super) fn get_instance_buffer(&self) -> Buffer {
-        self.instance_buffer
+    pub(super) fn instance_buffer(&self) -> Buffer {
+        self.cluster_module.instance_buffer()
     }
 
-    pub(super) fn get_last_rt_pos(&self) -> Vec3 {
+    pub(super) fn last_rt_pos(&self) -> Vec3 {
         self.last_rt_pos
     }
 }

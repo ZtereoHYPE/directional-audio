@@ -1,11 +1,36 @@
+use std::alloc::{alloc_zeroed, Layout};
 use crate::audio_engine::ray_tracer::rays::SPHERE_POINTS;
 use crate::audio_engine::signal_processor::transfer::copy_to_box;
 use crate::audio_engine::GpuData;
-use crate::scene::source::FRAME_SIZE;
+use crate::scene::source::{AudioSource, FRAME_SIZE};
 use crate::scene::Scene;
 use crate::util::vec3;
-use crevice::std430::{AsStd430, Vec2, Vec3};
+use crevice::std430::{AsStd430, Vec2, Vec3, Vec4};
 use std::mem::ManuallyDrop;
+use std::slice;
+
+pub(crate) trait FromMemoryMap : Sized {
+    unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> { unsafe {
+        if !pointer.cast::<Self>().is_aligned() {
+            panic!("The given pointer is not properly aligned!");
+        }
+
+        ManuallyDrop::new(Box::from_raw(pointer.cast()))
+    }}
+
+    unsafe fn to_local_copy(&self) -> Box<Self> { unsafe {
+        // Allocate the required space
+        let layout = Layout::new::<Self>();
+        let dst = alloc_zeroed(layout) as *mut Self;
+        let src = self as *const Self;
+
+        // Copy the memory value
+        std::ptr::copy_nonoverlapping(src, dst, 1);
+
+        // Wrap in a box
+        Box::from_raw(dst)
+    }}
+}
 
 #[derive(AsStd430)]
 pub(crate) struct FftUbo {
@@ -121,16 +146,17 @@ impl DownloadBuffer {
 /// The stream is represented as an index within the Stream Buffer.
 pub(crate) const MAX_INSTANCES: usize = 64; // todo: currently limited by the synchronization issues
 
-#[derive(AsStd430)]
+#[derive(AsStd430, Clone)]
 #[repr(align(16))]
-pub(crate) struct AudioInstance {
-    direction: Vec3,
+pub struct AudioInstance {
+    pub direction: Vec3,
     distance: f32,
     index: u32,
 }
 
-pub(crate) struct InstanceBuffer {
-    instances: Vec<AudioInstance>,
+// todo: get rid of the variable size here, these buffers should only have fixed-size and not be reference types (ie. directly mappable)
+pub struct InstanceBuffer {
+    pub instances: Vec<AudioInstance>,
 }
 
 impl GpuData for InstanceBuffer {
@@ -145,6 +171,20 @@ impl GpuData for InstanceBuffer {
     fn size(&self) -> usize {
         self.instances.len() * 32
     }
+}
+
+impl FromMemoryMap for InstanceBuffer {
+    unsafe fn from_memory_map(pointer: *mut u8) -> ManuallyDrop<Box<Self>> { unsafe {
+        if !pointer.cast::<*mut AudioInstance>().is_aligned() {
+            panic!("The given pointer is not properly aligned!");
+        }
+
+        let buffer = InstanceBuffer {
+            instances: slice::from_raw_parts(pointer.cast(), MAX_INSTANCES).to_vec()
+        };
+
+        ManuallyDrop::new(buffer.into())
+    }}
 }
 
 impl InstanceBuffer {
@@ -162,6 +202,11 @@ impl InstanceBuffer {
         }
         
         instance
+    }
+
+    pub(crate) fn truncate(&mut self, instance_amt: usize) {
+        assert!(self.instances.len() >= instance_amt);
+        self.instances.truncate(instance_amt);
     }
 
     pub(crate) fn max_size() -> usize {
@@ -198,8 +243,8 @@ impl SourcesBuffer {
         ManuallyDrop::new(Box::from_raw(pointer.cast()))
     }}
 
-    pub(crate) unsafe fn copy_coordinates(&mut self, scene: &Scene) {
-        for (idx, source) in scene.sources.iter().enumerate() {
+    pub(crate) unsafe fn copy_coordinates(&mut self, sources: &Vec<AudioSource>) {
+        for (idx, source) in sources.iter().enumerate() {
             self.sources[idx] = source.coordinates;
         }
     }

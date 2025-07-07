@@ -1,6 +1,7 @@
 use crate::audio_mesh::{AudioMeshNode, AUDIO_MESH_GROUP};
 use crate::audio_source::{AudioSourceNode, AUDIO_SOURCE_GROUP};
 use crate::to_vec;
+use crate::visualization::GodotVisualizationData;
 use audio_processor;
 use audio_processor::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
 use audio_processor::scene::source::FRAME_SIZE;
@@ -77,6 +78,7 @@ impl INode3D for AudioListenerNode {
         if self.audio_engine.is_none() {
             return;
         }
+
         let engine = self.audio_engine.as_ref().unwrap();
         self.allowed_samples += delta * SAMPLE_RATE / FRAME_SIZE as f64;
 
@@ -99,6 +101,13 @@ impl INode3D for AudioListenerNode {
                 self.accumulated_samples.extend_from_slice(frames.as_slice())
             }
         }
+
+        // todo: rename from Debug to visualization
+        if let Some(debug_data) = engine.get_debug_data() {
+            let mut vis_data = GodotVisualizationData::new_gd();
+            vis_data.bind_mut().set_data(debug_data);
+            self.signals().visualization_data_received().emit(&vis_data);
+        }
     }
 
     // gets called every "tick" (physics frame)
@@ -106,6 +115,7 @@ impl INode3D for AudioListenerNode {
         if self.audio_engine.is_none() {
             return;
         }
+
         let engine = self.audio_engine.as_ref().unwrap();
 
         // Update listener location
@@ -118,7 +128,7 @@ impl INode3D for AudioListenerNode {
             engine.update_listener(to_vec(position), rotation_matrix(rotation.x, rotation.y));
         }
 
-        // todo: process the audio sources' new positions
+        engine.request_debug(); // for now, only request debug once per tick. Later do once per frame.
     }
 
     fn enter_tree(&mut self) {
@@ -216,4 +226,14 @@ impl AudioListenerNode {
     fn on_volume_change(&mut self, volume: f32) {
         self.volume = volume / 100.0;
     }
+
+    #[func]
+    fn set_play_state(&mut self, state: bool) {
+        if let Some(engine) = &self.audio_engine {
+            engine.set_play_state(state);
+        }
+    }
+
+    #[signal]
+    fn visualization_data_received(data: Gd<GodotVisualizationData>);
 }

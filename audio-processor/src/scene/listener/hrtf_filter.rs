@@ -33,7 +33,6 @@ impl HrtfFilter {
             .unwrap();
 
         let filter_len = sofa.filter_len();
-        println!("Loading HRTF Filter of length {}", filter_len);
 
         // Sample with Gauss-Lagemdre distribution
         let azimuths: Vec<f32> = {
@@ -104,7 +103,6 @@ impl GpuData for HrtfFilterChannel {
     }
 
     fn size(&self) -> usize {
-        // todo: this assumes they all have the same length... find a way to enforce that?
         let azimuths = self.data.len();
         let elevations = self.data[0].len(); 
         let filter_len = self.data[0][0].len();
@@ -112,6 +110,7 @@ impl GpuData for HrtfFilterChannel {
         azimuths * elevations * filter_len * size_of::<Vec4>()
     }
 }
+
 
 fn transform_filter(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec4> {
     assert!(pad_length > filter.len(), "Padded length must be equal or larger than the filter's length!");

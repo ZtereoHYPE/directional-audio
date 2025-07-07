@@ -190,8 +190,8 @@ pub fn rotation_matrix(pitch: f32, yaw: f32) -> Mat3 {
     mat
 }
 
-pub fn workgroup_div(instances: usize, warp_size: usize) -> u32 {
-    ((instances + warp_size - 1) / warp_size) as u32
+pub fn workgroup_div(instances: u32, warp_size: u32) -> u32 {
+    ((instances + warp_size - 1) / warp_size)
 }
 
 #[cfg(test)]

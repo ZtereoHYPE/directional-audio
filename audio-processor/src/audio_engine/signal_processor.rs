@@ -260,7 +260,7 @@ impl SignalProcessor {
         }
     }
 
-    pub unsafe fn process_frames(&mut self, listener: &AudioListener, sources: &mut Vec<AudioSource>, instance_amt: usize, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
+    pub unsafe fn process_frames(&mut self, listener: &AudioListener, sources: &mut Vec<AudioSource>, instance_amt: u32, last_rt_pos: Vec3) -> (GpuFrame, GpuFrame) {
         // transfer data to right buffer
         self.transfer_module
             .upload_new_frames(&mut self.compute_command_buffer, sources, self.counter)
@@ -296,7 +296,7 @@ impl SignalProcessor {
         )
     }
 
-    pub(super) fn get_instance_buffer(&self) -> Buffer {
+    pub(super) fn instance_buffer(&self) -> Buffer {
         self.instance_buffer
     }
 }

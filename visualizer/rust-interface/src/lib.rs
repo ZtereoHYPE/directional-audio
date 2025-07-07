@@ -5,6 +5,7 @@ use crevice::std430::Vec3;
 mod audio_listener;
 mod audio_source;
 mod audio_mesh;
+mod visualization;
 
 struct AudioVisualization;
 

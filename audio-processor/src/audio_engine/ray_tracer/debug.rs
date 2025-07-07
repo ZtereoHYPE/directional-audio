@@ -1,7 +1,7 @@
 use crate::audio_engine::read_file_words;
 use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
-use crevice::std430::{Mat3, Vec3};
+use crevice::std430::{Mat3, Std430, Vec3};
 use std::array::from_ref;
 use crate::util::workgroup_div;
 
@@ -131,7 +131,7 @@ impl DebugRayModule {
         }
     }
 
-    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: usize, origin: Vec3, rotation: Mat3) {
+    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, rotation: Mat3) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -152,7 +152,7 @@ impl DebugRayModule {
             self.pipeline_layout,
             ShaderStageFlags::COMPUTE,
             0,
-            core::slice::from_raw_parts((&origin as *const Vec3) as *const u8, size_of::<Vec3>())
+            origin.as_bytes()
         );
 
         self.device.cmd_push_constants(
@@ -160,7 +160,7 @@ impl DebugRayModule {
             self.pipeline_layout,
             ShaderStageFlags::COMPUTE,
             16,
-            core::slice::from_raw_parts((&rotation as *const Mat3) as *const u8, size_of::<Mat3>())
+            rotation.as_bytes()
         );
 
         self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);

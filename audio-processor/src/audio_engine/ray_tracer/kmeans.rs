@@ -1,11 +1,16 @@
-use crate::audio_engine::gpu_structures::MAX_SOURCES;
-use crate::audio_engine::ray_tracer::rays::SPHERE_POINTS;
+use crate::audio_engine::gpu_structures::{FromMemoryMap, InstanceBuffer, MAX_SOURCES};
+use crate::audio_engine::ray_tracer::rays::{RayBuffer, SPHERE_POINTS};
 use crate::audio_engine::{read_file_words, GpuData};
-use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::{Std430, Vec3};
 use std::array::from_ref;
+use std::mem::ManuallyDrop;
+use std::rc::Rc;
+use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
+use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::ray_tracer::RayTracerConstants;
+use crate::util::workgroup_div;
 
 const ITERATIONS: usize = 6;
 pub(super) const CENTROIDS: usize = 8;
@@ -22,21 +27,104 @@ pub(super) struct KMeansModule {
     sum_pipeline_layout: PipelineLayout,
     sum_descriptor_set: DescriptorSet,
     sum_descriptor_set_layout: DescriptorSetLayout,
-    
+
+    instance_buffer: Buffer,
+    centroids_buffer: Buffer,
+    cpu_instance_buffer: Buffer,
+    cpu_instance_map: *mut u8,
+
     queue: Queue
 }
 
 impl KMeansModule {
     pub(super) fn new(
+        allocator: Rc<Allocator>,
+        initializer: &mut BufferInitializer,
         device: Device,
         descriptor_pool: DescriptorPool,
         rt_output_buffer: Buffer,
-        centroids_buffer: Buffer,
-        neighbours_buffer: Buffer,
-        instance_buffer: Buffer,
-        queue: Queue,
+        queue: (Queue, u32),
         constants: RayTracerConstants
     ) -> Self {
+        let (neighbours_buffer, neighbours_buffer_mem) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(NeighboursBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferDevice,
+                ..Default::default()
+            };
+
+            allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer")
+        };
+
+        let (mut centroids_buffer, centroid_buffer_mem) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(CentroidBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferDevice,
+                ..Default::default()
+            };
+
+            allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer")
+        };
+        unsafe {
+            let buffer_data = CentroidBuffer::from_initial_centroids(KMeansModule::initial_centroids());
+            initializer.upload_buffer_onetime(&device, queue.0, buffer_data, &mut centroids_buffer);
+        }
+
+        let (instance_buffer, instance_buffer_mem) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(InstanceBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferDevice,
+                ..Default::default()
+            };
+
+            allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer")
+        };
+
+        let (cpu_instance_buffer, cpu_instance_memory, cpu_instance_map) = unsafe {
+            let buffer_info = BufferCreateInfo::default()
+                .size(InstanceBuffer::max_size() as u64)
+                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
+                .queue_family_indices(from_ref(&queue.1))
+                .sharing_mode(SharingMode::EXCLUSIVE);
+
+            let allocation_info = vk_mem::AllocationCreateInfo {
+                usage: vk_mem::MemoryUsage::AutoPreferHost,
+                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
+                ..Default::default()
+            };
+
+            let (buffer, mut memory) = allocator
+                .create_buffer(&buffer_info, &allocation_info)
+                .expect("Failed to create buffer");
+
+            let map = allocator
+                .map_memory(&mut memory)
+                .expect("Failed to map memory");
+
+            (buffer, memory, map)
+        };
+
         let (closest_descriptor_set, closest_descriptor_set_layout) = unsafe {
             let bindings = [
                 DescriptorSetLayoutBinding::default()
@@ -296,7 +384,11 @@ impl KMeansModule {
             sum_pipeline_layout,
             sum_descriptor_set,
             sum_descriptor_set_layout,
-            queue,
+            instance_buffer,
+            centroids_buffer,
+            cpu_instance_buffer,
+            cpu_instance_map,
+            queue: queue.0,
         }
     }
 
@@ -319,7 +411,7 @@ impl KMeansModule {
                 self.closest_pipeline
             );
 
-            self.device.cmd_dispatch(*command_buffer, SPHERE_POINTS as u32 / 64, source_amt, 1);
+            self.device.cmd_dispatch(*command_buffer, SPHERE_POINTS as u32 / 64, source_amt as u32, 1);
 
             let memory_barrier = MemoryBarrier::default()
                 .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches
@@ -354,10 +446,7 @@ impl KMeansModule {
             let last = (iteration == (ITERATIONS-1)) as u32;
             self.device.cmd_push_constants(*command_buffer, self.sum_pipeline_layout, ShaderStageFlags::COMPUTE, 0, last.as_bytes());
 
-            // todo: make sure all dispatches have the minimum required to cover everything (they round up)
-            //       maybe could be extracted to a method
-            let x_workgroups = (source_amt + 63) / 64; // rounds up
-            self.device.cmd_dispatch(*command_buffer, x_workgroups, 1, 1);
+            self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);
 
             self.device.cmd_pipeline_barrier(
                 *command_buffer,
@@ -371,7 +460,37 @@ impl KMeansModule {
         }
     }
 
-    pub(crate) fn initial_centroids() -> [Vec3; CENTROIDS] {
+    pub(super) unsafe fn copy_instance_buffer(&mut self, command_buffer: &mut CommandBuffer) {
+        let memory_barrier = MemoryBarrier::default()
+            .src_access_mask(AccessFlags::SHADER_WRITE) // flush any shader write caches
+            .dst_access_mask(AccessFlags::TRANSFER_READ); // invalidate any transfer read caches
+
+        self.device.cmd_pipeline_barrier(
+            *command_buffer,
+            PipelineStageFlags::COMPUTE_SHADER, // wait for all compute commands so far...
+            PipelineStageFlags::TRANSFER, // ...before executing any transfer from now on
+            DependencyFlags::empty(),
+            from_ref(&memory_barrier),
+            &[],
+            &[]
+        );
+
+        let region = BufferCopy::default()
+            .size(InstanceBuffer::max_size() as _);
+
+        self.device.cmd_copy_buffer(
+            *command_buffer,
+            self.instance_buffer,
+            self.cpu_instance_buffer,
+            from_ref(&region)
+        );
+    }
+
+    pub(super) unsafe fn get_local_instance_buffer(&mut self) -> ManuallyDrop<Box<InstanceBuffer>> {
+        InstanceBuffer::from_memory_map(self.cpu_instance_map)
+    }
+
+    fn initial_centroids() -> [Vec3; CENTROIDS] {
         [
             Vec3 {x: 1.0, y: 0.0, z: 0.0},
             Vec3 {x: -1.0, y: 0.0, z: 0.0},
@@ -382,6 +501,10 @@ impl KMeansModule {
             Vec3 {x: 2.0, y: 0.0, z: 2.0},
             Vec3 {x: -2.0, y: 0.0, z: 2.0},
         ]
+    }
+
+    pub(super) fn instance_buffer(&self) -> Buffer {
+        self.instance_buffer
     }
 }
 

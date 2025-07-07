@@ -1,48 +1,6 @@
-[gd_scene load_steps=7 format=3 uid="uid://bs72ogkvdd7d6"]
+[gd_scene load_steps=2 format=3 uid="uid://bs72ogkvdd7d6"]
 
 [ext_resource type="Script" uid="uid://b8n4t5ovhdibx" path="res://addons/proto_controller/proto_controller.gd" id="1_ucva2"]
-[ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/arrow.obj" id="2_wr06p"]
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_iof21"]
-albedo_color = Color(0.91806, 0.575202, 0.222449, 1)
-
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_ucva2"]
-radius = 0.4
-height = 1.8
-
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_iof21"]
-radius = 0.4
-height = 1.8
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_5hfox"]
-shading_mode = 2
-albedo_color = Color(0.347155, 0.749055, 0.370706, 1)
 
 [node name="ProtoController" type="CharacterBody3D"]
 script = ExtResource("1_ucva2")
-
-[node name="Mesh" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-material_override = SubResource("StandardMaterial3D_iof21")
-cast_shadow = 0
-mesh = SubResource("CapsuleMesh_ucva2")
-
-[node name="Collider" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_iof21")
-
-[node name="Head" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Head"]
-transform = Transform3D(-1.31134e-08, 0, 0.3, 0, 0.3, 0, -0.3, 0, -1.31134e-08, 0, 0.46891, -0.130028)
-material_override = SubResource("StandardMaterial3D_5hfox")
-cast_shadow = 0
-mesh = ExtResource("2_wr06p")
-
-[node name="Camera3D" type="Camera3D" parent="Head"]
-
-[node name="AudioListenerNode" type="AudioListenerNode" parent="Head"]
-enabled = false
-hrtf_filter = "res://audio/HRIR_FULL2DEG.sofa"
-export_audio = true

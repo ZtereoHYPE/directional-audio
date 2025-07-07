@@ -4,6 +4,7 @@ use ash::Device;
 use std::array::from_ref;
 use std::mem::transmute;
 use std::rc::Rc;
+use crevice::std430::Std430;
 use vk_mem::{Alloc, Allocator};
 use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
@@ -339,7 +340,7 @@ impl HrtfModule {
         }
     }
 
-    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, instance_amt: usize) {
+    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, instance_amt: u32) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -361,7 +362,7 @@ impl HrtfModule {
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, workgroup_div(instance_amt, 64));
 
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, &instance_amt.to_ne_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, instance_amt.as_bytes());
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

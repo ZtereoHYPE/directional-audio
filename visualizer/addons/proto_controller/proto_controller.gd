@@ -133,11 +133,9 @@ func disable_freefly():
 	collider.disabled = false
 	freeflying = false
 
-
 func capture_mouse():
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	mouse_captured = true
-
 
 func release_mouse():
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -165,9 +163,6 @@ func check_input_mappings():
 	if can_freefly and not InputMap.has_action(input_freefly):
 		push_error("Freefly disabled. No InputAction found for input_freefly: " + input_freefly)
 		can_freefly = false
-
-func _on_h_slider_value_changed(value: float) -> void:
-	$Head/AudioListenerNode.on_volume_change(value)
 
 func _on_person_selector_item_selected(index: int) -> void:
 	if index == 0:

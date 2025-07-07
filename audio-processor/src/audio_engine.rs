@@ -2,7 +2,7 @@
 
 use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::gpu_structures::{GpuFrame, GpuWindow, InstanceBuffer};
-use crate::audio_engine::ray_tracer::RayTracer;
+use crate::audio_engine::ray_tracer::{RayTracer, RtDebugData};
 use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::source::{Frame, FRAME_SIZE};
 use crate::scene::Scene;
@@ -182,13 +182,17 @@ impl AudioEngine {
         }
     }}
 
-    pub(crate) fn process_frames(&mut self) -> (Frame, Frame) {
-        unsafe {
-            // self.ray_tracer.trace_rays(&self.scene);
+    pub(crate) fn process_frames(&mut self, copy_debug_info: bool) -> (Frame, Frame, Option<RtDebugData>) { unsafe {
+            self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
             self.ray_tracer.copy_sources_debug(&self.scene);
+            let ray_debug_data = if copy_debug_info {
+                Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
+            } else {
+                None
+            };
 
-            let mut src_audio_instances = self.ray_tracer.get_instance_buffer();
-            let mut dst_audio_instances = self.signal_processor.get_instance_buffer();
+            let mut src_audio_instances = self.ray_tracer.instance_buffer();
+            let mut dst_audio_instances = self.signal_processor.instance_buffer();
 
             self.buffer_initializer.copy_buffer(
                 &self.device, 
@@ -202,12 +206,13 @@ impl AudioEngine {
                 &self.scene.listener,
                 &mut self.scene.sources,
                 1, // todo: obtain this from ray tracing 
-                self.ray_tracer.get_last_rt_pos()
+                self.ray_tracer.last_rt_pos()
             );
 
             (
                 gpu_to_frame(&left),
-                gpu_to_frame(&right)
+                gpu_to_frame(&right),
+                ray_debug_data
             )
         }
     }
@@ -227,6 +232,7 @@ impl AudioEngine {
 impl Drop for AudioEngine {
     fn drop(&mut self) {
         // todo: Cleanup!
+
     }
 }
 
