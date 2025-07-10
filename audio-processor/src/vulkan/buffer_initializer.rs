@@ -1,13 +1,21 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unused)]
 
-use crate::audio_engine::GpuData;
+use crate::audio_engine::DynamicBufferData;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, DeviceSize, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
+use std::ptr::copy_nonoverlapping;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
+use crate::audio_engine::gpu_structures::AudioInstance;
+use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
 
-const STAGING_BUFFER_SIZE: u64 = 256 * 1024 * 1024; // 128 MB
+pub(crate) enum InitMode<T: BufferData> {
+    Zeroed,
+    Populated(Box<T>)
+}
+
+const STAGING_BUFFER_SIZE: usize = 256 * 1024 * 1024; // 256 MB
 
 // Util object to one-time upload data to a buffer using a staging buffer
 pub(crate) struct BufferInitializer {
@@ -17,12 +25,13 @@ pub(crate) struct BufferInitializer {
     staging_map: *mut u8,
     command_pool: CommandPool,
     command_buffer: CommandBuffer,
+    queue_family: u32,
     fence: Fence,
 }
 
 impl BufferInitializer {
     // todo: make this work for different queues! (inspect queue transfers)
-    pub(crate) fn new(instance: &Instance, device: &Device, gpu: &PhysicalDevice, compute_queue_idx: u32) -> Self {
+    pub(crate) fn new(instance: &Instance, device: &Device, gpu: &PhysicalDevice, queue_family: u32) -> Self { // todo: queue_idx -> array (have a map  u32 -> pool  of the different supported)
         let allocator = {
             let allocator_create_info = AllocatorCreateInfo::new(
                 instance,
@@ -39,7 +48,7 @@ impl BufferInitializer {
         let command_pool = {
             let pool_create_info = CommandPoolCreateInfo::default()
                 .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                .queue_family_index(compute_queue_idx);
+                .queue_family_index(queue_family);
 
             unsafe {
                 device
@@ -63,9 +72,8 @@ impl BufferInitializer {
 
         let (staging_buffer, staging_memory, staging_map) = {
             let buffer_info = BufferCreateInfo::default()
-                .size(STAGING_BUFFER_SIZE)
+                .size(STAGING_BUFFER_SIZE as DeviceSize)
                 .usage(BufferUsageFlags::TRANSFER_SRC)
-                .queue_family_indices(from_ref(&compute_queue_idx))
                 .sharing_mode(SharingMode::EXCLUSIVE);
 
             let allocation_info = vk_mem::AllocationCreateInfo {
@@ -101,15 +109,42 @@ impl BufferInitializer {
             staging_map,
             command_pool,
             command_buffer,
+            queue_family,
             fence
         }
     }
 
-    pub(crate) unsafe fn upload_buffer_onetime<T: GpuData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Buffer) {
+    pub(crate) fn init_buffer<T: BufferData>(&mut self, buffer: &mut VulkanBuffer<T>, mode: InitMode<T>, queue: (Queue, u32), device: &Device) {
+        // Check if the queue matches
+        if queue.1 != self.queue_family {
+            panic!("Currently, only queue family {} is supported! {} was requested.", self.queue_family, queue.1)
+        }
+
+        if let InitMode::Zeroed = mode {
+            unsafe { self.clear_buffer(device, queue.0, &mut buffer.handle(), buffer.size()); }
+            return;
+        }
+
+        let InitMode::Populated(data) = mode else { unreachable!() };
+
+        unsafe {
+            // stage data and begin command
+            self.stage_data(device, data);
+            self.begin_command(device);
+
+            // perform copy
+            device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, buffer.handle(), T::region());
+
+            // submit
+            self.end_command(device, queue.0);
+        }
+    }
+
+    pub(crate) unsafe fn init_dynamic_buffer<T: DynamicBufferData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Buffer) {
         let size = src.size() as u64;
 
         // stage data and begin command
-        self.stage_data(device, src);
+        self.stage_dynamic_data(device, src);
         self.begin_command(device);
 
         // perform copy
@@ -121,11 +156,11 @@ impl BufferInitializer {
     }
 
     // warning: this also transitions the image layout
-    pub(crate) unsafe fn upload_image_onetime<T: GpuData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Image, dst_layout: ImageLayout, dst_extent: Extent3D) {
+    pub(crate) unsafe fn init_image<T: DynamicBufferData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Image, dst_layout: ImageLayout, dst_extent: Extent3D) {
         let size = src.size() as u64;
 
         // stage data and begin command
-        self.stage_data(device, src);
+        self.stage_dynamic_data(device, src);
         self.begin_command(device);
 
         // transition the image's layout to the required one
@@ -236,10 +271,23 @@ impl BufferInitializer {
             .expect("Failed to wait for fence");
     }
 
-    unsafe fn stage_data<T: GpuData>(&self, device: &Device, src: T) {
-        let size = src.size() as u64;
+    unsafe fn stage_data<T: BufferData>(&self, device: &Device, data: Box<T>) {
+        if size_of::<T>() > STAGING_BUFFER_SIZE {
+            todo!("Uploading data bigger than the staging buffer isn't supported yet");
+        }
 
-        if size > STAGING_BUFFER_SIZE {
+        copy_nonoverlapping(
+            (data.as_ref() as *const T).cast(),
+            self.staging_map,
+            size_of::<T>()
+        );
+        self.allocator
+            .flush_allocation(&self.staging_memory, 0, WHOLE_SIZE)
+            .expect("Failed to flush allocation");
+    }
+
+    unsafe fn stage_dynamic_data<T: DynamicBufferData>(&self, device: &Device, src: T) {
+        if src.size() > STAGING_BUFFER_SIZE {
             todo!("Uploading data bigger than the staging buffer isn't supported yet");
         }
 

@@ -1,4 +1,4 @@
-use crate::audio_engine::{read_file_words, GpuData};
+use crate::audio_engine::{read_file_words, DynamicBufferData};
 use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, MemoryBarrier, MemoryPropertyFlags, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::{Std430, Vec3, Vec4};
@@ -6,11 +6,12 @@ use std::array::from_ref;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
-use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{FftBuffer, FromMemoryMap, OutputBuffer, SourcesBuffer, MAX_SOURCES};
+use crate::audio_engine::gpu_structures::{FftBufferData, RtOutputBufferData, MAX_SOURCES};
 use crate::audio_engine::ray_tracer::RayTracerConstants;
 use crate::scene::Scene;
 use crate::scene::source::AudioSource;
+use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer_initializer::BufferInitializer;
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
 
@@ -20,15 +21,13 @@ pub(super) struct RayModule {
     pipeline_layout: PipelineLayout,
     descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
-    sources_buffer: Buffer,
-    staging_sources_buffer: Buffer,
-    staging_sources_map: *mut u8,
+    pub(super) sources_buffer: VulkanBuffer<SourceBufferData>,
+    local_sources_buffer: LocalVulkanBuffer<SourceBufferData>,
     bvh_buffer: Buffer,
     triangle_buffer: Buffer,
-    rt_output_buffer: Buffer,
-    ray_buffer: Buffer,
-    staging_ray_buffer: Buffer,
-    staging_ray_map: *mut u8,
+    ray_buffer: VulkanBuffer<RayBufferData>,
+    pub(super) local_ray_buffer: LocalVulkanBuffer<RayBufferData>,
+    pub(super) output_buffer: VulkanBuffer<RtOutputBufferData>,
     queue: Queue
 }
 
@@ -42,89 +41,27 @@ impl RayModule {
         scene: &Scene,
         constants: RayTracerConstants
     ) -> Self {
-        let (sources_buffer, sources_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(SourcesBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let sources_buffer = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
+        let local_sources_buffer = LocalVulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC,
+            allocator.clone()
+        );
 
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
+        let ray_buffer = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-        let (staging_sources_buffer, staging_sources_mem, staging_sources_map) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(SourcesBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let local_ray_buffer = LocalVulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_DST,
+            allocator.clone()
+        );
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferHost,
-                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
-                ..Default::default()
-            };
-
-            let (buffer, mut memory) = allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer");
-
-            let map = allocator
-                .map_memory(&mut memory)
-                .expect("Failed to map memory");
-
-            (buffer, memory, map)
-        };
-
-        let (ray_buffer, ray_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(RayBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (staging_ray_buffer, staging_ray_mem, staging_ray_map) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(RayBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferHost,
-                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
-                required_flags: MemoryPropertyFlags::HOST_COHERENT, // TODO: remove, very slow
-                ..Default::default()
-            };
-
-            let (buffer, mut memory) = allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer");
-
-            let map = allocator
-                .map_memory(&mut memory)
-                .expect("Failed to map memory");
-
-            (buffer, memory, map)
-        };
-
+        // these buffers can't use the nice wrapper, as their size and contents are determined at runtime :/
         let (mut bvh_buffer, bvh_buffer_mem) = unsafe {
             let buffer_info = BufferCreateInfo::default()
                 .size(scene.mesh.bvh.size() as u64)
@@ -159,22 +96,10 @@ impl RayModule {
                 .expect("Failed to create buffer")
         };
 
-        let (rt_output_buffer, rt_output_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(OutputBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
+        let output_buffer = VulkanBuffer::new(
+            BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
         let (descriptor_set, descriptor_set_layout) = unsafe {
             let bindings = [
@@ -223,7 +148,7 @@ impl RayModule {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(sources_buffer)
+                    .buffer(sources_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
                     .buffer(bvh_buffer)
@@ -232,10 +157,10 @@ impl RayModule {
                     .buffer(triangle_buffer)
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(rt_output_buffer)
+                    .buffer(output_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(ray_buffer)
+                    .buffer(ray_buffer.handle())
                     .range(WHOLE_SIZE),
             ];
 
@@ -330,27 +255,28 @@ impl RayModule {
             descriptor_set,
             descriptor_set_layout,
             sources_buffer,
-            staging_sources_buffer,
-            staging_sources_map,
+            local_sources_buffer,
             bvh_buffer,
             triangle_buffer,
-            rt_output_buffer,
             ray_buffer,
-            staging_ray_buffer,
-            staging_ray_map,
+            local_ray_buffer,
+            output_buffer,
             queue: queue.0,
         }
     }
 
     pub(super) unsafe fn stage_sources(&mut self, command_buffer: &mut CommandBuffer, sources: &Vec<AudioSource>) {
         // Stage the new coordinates
-        SourcesBuffer::from_memory_map(self.staging_sources_map).copy_coordinates(sources);
-
-        // todo: invalidate the allocation
+        self.local_sources_buffer.buffer_data().copy_coordinates(sources);
+        self.local_sources_buffer.invalidate();
 
         // Copy from staging buffer
-        let region = BufferCopy::default().size(SourcesBuffer::max_size() as DeviceSize);
-        self.device.cmd_copy_buffer(*command_buffer, self.staging_sources_buffer, self.sources_buffer, from_ref(&region));
+        self.device.cmd_copy_buffer(
+            *command_buffer,
+            self.local_sources_buffer.handle(),
+            self.sources_buffer.handle(),
+            SourceBufferData::region()
+        );
     }
 
     pub(super) unsafe fn shoot_rays(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, store_rays: bool) {
@@ -404,7 +330,7 @@ impl RayModule {
 
     /// Warning: The buffer returned by this does not contain the data yet!
     /// The command buffer has to be submitted and fenced on first!
-    pub(super) unsafe fn copy_ray_buffer(&mut self, command_buffer: &mut CommandBuffer) -> ManuallyDrop<Box<RayBuffer>> {
+    pub(super) unsafe fn copy_ray_buffer(&mut self, command_buffer: &mut CommandBuffer) {
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::SHADER_WRITE) // flush any shader write caches
             .dst_access_mask(AccessFlags::TRANSFER_READ); // invalidate any transfer read caches
@@ -419,40 +345,32 @@ impl RayModule {
             &[]
         );
 
-        let region = BufferCopy::default()
-            .size(RayBuffer::max_size() as _);
-
         self.device.cmd_copy_buffer(
             *command_buffer,
-            self.ray_buffer,
-            self.staging_ray_buffer,
-            from_ref(&region)
+            self.ray_buffer.handle(),
+            self.local_ray_buffer.handle(),
+            RayBufferData::region()
         );
-
-        RayBuffer::from_memory_map(self.staging_ray_map)
-    }
-
-    pub(super) fn output_buffer(&self) -> Buffer {
-        self.rt_output_buffer
-    }
-
-    pub(super) unsafe fn local_ray_buffer(&self) -> Box<RayBuffer> {
-        RayBuffer::from_memory_map(self.staging_ray_map).to_local_copy()
-    }
-
-    pub(super) fn sources_buffer(&self) -> Buffer {
-        self.sources_buffer
     }
 }
 
-pub struct RayBuffer {
+pub struct RayBufferData {
     pub rays: [Vec4; SPHERE_POINTS * 4 * MAX_SOURCES]
 }
 
-impl RayBuffer {
-    pub(crate) fn max_size() -> usize {
-        size_of::<Self>()
+impl BufferData for RayBufferData {}
+
+
+pub(super) struct SourceBufferData {
+    sources: [Vec3; MAX_SOURCES]
+}
+
+impl SourceBufferData {
+    pub(crate) fn copy_coordinates(&mut self, sources: &Vec<AudioSource>) {
+        for (idx, source) in sources.iter().enumerate() {
+            self.sources[idx] = source.coordinates;
+        }
     }
 }
 
-impl FromMemoryMap for RayBuffer {}
+impl BufferData for SourceBufferData {}

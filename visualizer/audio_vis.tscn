@@ -376,5 +376,6 @@ script = ExtResource("10_qea6r")
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="3D Scene/Player/Head/AudioListenerNode" method="on_volume_change"]
 [connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause/PlayPauseButton" to="3D Scene/Player/Head/AudioListenerNode" method="set_play_state"]
 [connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer/Debug Panel Checkbox" to="GUI/Debug Panel" method="_on_debug_panel_checkbox_toggled"]
+[connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Orbiting Camera" method="_on_person_selector_item_selected"]
 [connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/RayVisualizer" method="_on_audio_listener_node_visualization_data_received"]

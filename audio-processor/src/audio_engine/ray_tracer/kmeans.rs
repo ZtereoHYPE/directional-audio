@@ -1,6 +1,6 @@
-use crate::audio_engine::gpu_structures::{FromMemoryMap, InstanceBuffer, MAX_SOURCES};
-use crate::audio_engine::ray_tracer::rays::{RayBuffer, SPHERE_POINTS};
-use crate::audio_engine::{read_file_words, GpuData};
+use crate::audio_engine::gpu_structures::{InstanceBufferData, RtOutputBufferData, MAX_SOURCES};
+use crate::audio_engine::ray_tracer::rays::{RayBufferData, SPHERE_POINTS};
+use crate::audio_engine::{read_file_words, DynamicBufferData};
 use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::{Std430, Vec3};
@@ -8,9 +8,10 @@ use std::array::from_ref;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
-use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::ray_tracer::RayTracerConstants;
 use crate::util::workgroup_div;
+use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 
 const ITERATIONS: usize = 6;
 pub(super) const CENTROIDS: usize = 8;
@@ -28,10 +29,10 @@ pub(super) struct KMeansModule {
     sum_descriptor_set: DescriptorSet,
     sum_descriptor_set_layout: DescriptorSetLayout,
 
-    instance_buffer: Buffer,
-    centroids_buffer: Buffer,
-    cpu_instance_buffer: Buffer,
-    cpu_instance_map: *mut u8,
+    neighbours_buffer: VulkanBuffer<NeighboursBufferData>,
+    centroids_buffer: VulkanBuffer<CentroidBufferData>,
+    pub(super) instance_buffer: VulkanBuffer<InstanceBufferData>,
+    pub(super) local_instance_buffer: LocalVulkanBuffer<InstanceBufferData>,
 
     queue: Queue
 }
@@ -42,88 +43,38 @@ impl KMeansModule {
         initializer: &mut BufferInitializer,
         device: Device,
         descriptor_pool: DescriptorPool,
-        rt_output_buffer: Buffer,
+        rt_output_buffer: &VulkanBuffer<RtOutputBufferData>,
         queue: (Queue, u32),
         constants: RayTracerConstants
     ) -> Self {
-        let (neighbours_buffer, neighbours_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(NeighboursBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let neighbours_buffer = VulkanBuffer::new(
+            BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
+        let mut centroids_buffer = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
+        let init_data = Box::new(CentroidBufferData::from_initial(KMeansModule::initial_centroids()));
+        initializer.init_buffer(
+            &mut centroids_buffer,
+            InitMode::Populated(init_data),
+            queue,
+            &device
+        );
 
-        let (mut centroids_buffer, centroid_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(CentroidBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let instance_buffer = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
+        let local_instance_buffer = LocalVulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-        unsafe {
-            let buffer_data = CentroidBuffer::from_initial_centroids(KMeansModule::initial_centroids());
-            initializer.upload_buffer_onetime(&device, queue.0, buffer_data, &mut centroids_buffer);
-        }
-
-        let (instance_buffer, instance_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(InstanceBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (cpu_instance_buffer, cpu_instance_memory, cpu_instance_map) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(InstanceBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferHost,
-                flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
-                ..Default::default()
-            };
-
-            let (buffer, mut memory) = allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer");
-
-            let map = allocator
-                .map_memory(&mut memory)
-                .expect("Failed to map memory");
-
-            (buffer, memory, map)
-        };
 
         let (closest_descriptor_set, closest_descriptor_set_layout) = unsafe {
             let bindings = [
@@ -162,13 +113,13 @@ impl KMeansModule {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(rt_output_buffer)
+                    .buffer(rt_output_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(centroids_buffer)
+                    .buffer(centroids_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(neighbours_buffer)
+                    .buffer(neighbours_buffer.handle())
                     .range(WHOLE_SIZE),
             ];
 
@@ -283,16 +234,16 @@ impl KMeansModule {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(rt_output_buffer)
+                    .buffer(rt_output_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(centroids_buffer)
+                    .buffer(centroids_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(neighbours_buffer)
+                    .buffer(neighbours_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(instance_buffer)
+                    .buffer(instance_buffer.handle())
                     .range(WHOLE_SIZE),
             ];
 
@@ -384,10 +335,10 @@ impl KMeansModule {
             sum_pipeline_layout,
             sum_descriptor_set,
             sum_descriptor_set_layout,
-            instance_buffer,
+            neighbours_buffer,
             centroids_buffer,
-            cpu_instance_buffer,
-            cpu_instance_map,
+            instance_buffer,
+            local_instance_buffer,
             queue: queue.0,
         }
     }
@@ -475,19 +426,12 @@ impl KMeansModule {
             &[]
         );
 
-        let region = BufferCopy::default()
-            .size(InstanceBuffer::max_size() as _);
-
         self.device.cmd_copy_buffer(
             *command_buffer,
-            self.instance_buffer,
-            self.cpu_instance_buffer,
-            from_ref(&region)
+            self.instance_buffer.handle(),
+            self.local_instance_buffer.handle(),
+            InstanceBufferData::region()
         );
-    }
-
-    pub(super) unsafe fn get_local_instance_buffer(&mut self) -> ManuallyDrop<Box<InstanceBuffer>> {
-        InstanceBuffer::from_memory_map(self.cpu_instance_map)
     }
 
     fn initial_centroids() -> [Vec3; CENTROIDS] {
@@ -502,21 +446,19 @@ impl KMeansModule {
             Vec3 {x: -2.0, y: 0.0, z: 2.0},
         ]
     }
-
-    pub(super) fn instance_buffer(&self) -> Buffer {
-        self.instance_buffer
-    }
 }
 
 /// Buffer used to contain the centroid locations across iterations of the kmeans algorithm
-pub(super) struct CentroidBuffer {
+pub(super) struct CentroidBufferData {
     centroids: [[Vec3; CENTROIDS]; MAX_SOURCES],
 }
 
-impl GpuData for CentroidBuffer {
+impl BufferData for CentroidBufferData {}
+
+impl DynamicBufferData for CentroidBufferData {
     unsafe fn serialize(&self, dst: *mut u8) {
         std::ptr::copy_nonoverlapping(
-            (self as *const CentroidBuffer).cast(),
+            (self as *const CentroidBufferData).cast(),
             dst,
             self.size()
         );
@@ -527,8 +469,8 @@ impl GpuData for CentroidBuffer {
     }
 }
 
-impl CentroidBuffer {
-    pub(crate) fn from_initial_centroids(initial_centroids: [Vec3; CENTROIDS]) -> Self {
+impl CentroidBufferData {
+    pub(crate) fn from_initial(initial_centroids: [Vec3; CENTROIDS]) -> Self {
         Self {
             centroids: [initial_centroids; MAX_SOURCES]
         }
@@ -539,10 +481,16 @@ impl CentroidBuffer {
     }
 }
 
+
 /// Buffer used to contain the neighbouring cluster to each point
-pub(super) struct NeighboursBuffer();
-impl NeighboursBuffer {
+pub(super) struct NeighboursBufferData {
+    neighbours: [u32; SPHERE_POINTS * MAX_SOURCES]
+}
+
+impl BufferData for NeighboursBufferData {}
+
+impl NeighboursBufferData {
     pub(crate) fn max_size() -> usize {
-        SPHERE_POINTS * MAX_SOURCES * size_of::<u32>()
+        size_of::<Self>()
     }
 }

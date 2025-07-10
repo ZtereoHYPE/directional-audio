@@ -3,6 +3,7 @@
 mod audio_engine;
 pub mod scene;
 pub mod util;
+mod vulkan;
 
 use crate::audio_engine::AudioEngine;
 use crate::scene::source::Frame;
@@ -118,7 +119,6 @@ impl AudioEngineMonitor {
         debug_tx: Sender<DebugData>,
         action_rx: Receiver<EngineAction>
     ) {
-        println!("a thread is alive");
         loop {
             let mut debug_data = false;
             match action_rx.try_recv() {
@@ -152,8 +152,6 @@ impl AudioEngineMonitor {
 
             frame_tx.send((left, right));
         }
-
-        println!("a thread is aboutta die");
     }
 
     fn park_vulkan_thread(action_rx: &Receiver<EngineAction>) {

@@ -1,4 +1,4 @@
-use crate::audio_engine::GpuData;
+use crate::audio_engine::DynamicBufferData;
 use crevice::std430::{Vec2, Vec3};
 use crevice::std430::Vec4;
 use sofar::reader::{Filter, OpenOptions};
@@ -87,7 +87,7 @@ pub struct HrtfFilterChannel {
     data: Vec<Vec<Vec<Vec4>>> // azimuth<altitude<frequency<dampening>>>
 }
 
-impl GpuData for HrtfFilterChannel {
+impl DynamicBufferData for HrtfFilterChannel {
     unsafe fn serialize(&self, mut dst: *mut u8) {
         for azimuth in &self.data {
             for elevation in azimuth {

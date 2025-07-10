@@ -1,4 +1,4 @@
-use crate::audio_engine::GpuData;
+use crate::audio_engine::DynamicBufferData;
 use crate::util::{vec3, Axis};
 use crevice::std430::Vec3;
 use crate::scene::mesh::bvh::{BvhBuffer, BvhBuilder};
@@ -39,7 +39,7 @@ impl Triangle {
 #[derive(Clone)]
 pub(crate) struct TriangleBuffer(Vec<Triangle>);
 
-impl GpuData for TriangleBuffer {
+impl DynamicBufferData for TriangleBuffer {
     unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         if self.0.is_empty() {
             return;

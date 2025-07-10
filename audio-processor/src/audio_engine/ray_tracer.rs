@@ -1,10 +1,9 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{AudioInstance, FromMemoryMap, InstanceBuffer, OutputBuffer, SourcesBuffer, MAX_INSTANCES, MAX_SOURCES};
-use crate::audio_engine::ray_tracer::kmeans::{CentroidBuffer, KMeansModule, NeighboursBuffer};
-use crate::audio_engine::ray_tracer::rays::{RayBuffer, RayModule, SPHERE_POINTS};
-use crate::audio_engine::GpuData;
+use crate::audio_engine::gpu_structures::{AudioInstance, InstanceBufferData, RtOutputBufferData, MAX_INSTANCES, MAX_SOURCES};
+use crate::audio_engine::ray_tracer::kmeans::{CentroidBufferData, KMeansModule, NeighboursBufferData};
+use crate::audio_engine::ray_tracer::rays::{RayBufferData, RayModule, SPHERE_POINTS};
+use crate::audio_engine::DynamicBufferData;
 use crate::scene::Scene;
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SpecializationMapEntry, SubmitInfo, WHOLE_SIZE};
 use ash::{Device, Instance};
@@ -18,6 +17,8 @@ use crate::audio_engine::ray_tracer::debug::DebugRayModule;
 use crate::audio_engine::signal_processor::transfer::copy_to_box;
 use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
 use crate::util::vec3;
+use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
+use crate::vulkan::buffer_initializer::BufferInitializer;
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
@@ -36,7 +37,7 @@ struct RayTracerConstants {
 impl RayTracerConstants {
     const SIZE: usize = size_of::<RayTracerConstants>();
 
-    // warning: this assumes that all fields are 4 in size
+    /// warning: this assumes that all fields are 4 in size
     fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
         entries
             .into_iter()
@@ -54,8 +55,8 @@ impl RayTracerConstants {
 }
 
 pub struct RtDebugData {
-    pub rays: Box<RayBuffer>,
-    pub instances: Box<InstanceBuffer>
+    pub rays: Box<RayBufferData>,
+    pub instances: Box<InstanceBufferData>
 }
 
 pub(crate) struct RayTracer {
@@ -164,7 +165,7 @@ impl RayTracer {
             buffer_initializer,
             device.clone(),
             descriptor_pool,
-            ray_module.output_buffer(),
+            &ray_module.output_buffer,
             async_queue,
             constants
         );
@@ -172,8 +173,8 @@ impl RayTracer {
         let debug_module = DebugRayModule::new(
             device.clone(),
             descriptor_pool,
-            ray_module.sources_buffer(),
-            cluster_module.instance_buffer(),
+            &ray_module.output_buffer,
+            &cluster_module.instance_buffer,
             async_queue.0
         );
 
@@ -244,30 +245,29 @@ impl RayTracer {
 
         self.device.begin_command_buffer(self.command_buffer, &begin_info)?;
 
-        let ray_buffer = self.ray_module.copy_ray_buffer(&mut self.command_buffer);
-        // self.cluster_module.copy_instance_buffer(&mut self.command_buffer);
+        self.ray_module.copy_ray_buffer(&mut self.command_buffer);
+        self.cluster_module.copy_instance_buffer(&mut self.command_buffer);
 
         // Submit the command buffer
-        // self.device.end_command_buffer(self.command_buffer)?;
-        //
-        // let submit_info = SubmitInfo::default()
-        //     .command_buffers(from_ref(&self.command_buffer));
-        //
-        // self.device.queue_submit(self.async_queue.0, &[submit_info], self.fence)?;
-        //
-        // // Wait for it to execute
-        // self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
+        self.device.end_command_buffer(self.command_buffer)?;
 
-        let instance_buffer = self.cluster_module.get_local_instance_buffer();
+        let submit_info = SubmitInfo::default()
+            .command_buffers(from_ref(&self.command_buffer));
+
+        self.device.queue_submit(self.async_queue.0, &[submit_info], self.fence)?;
+
+        // Wait for it to execute
+        self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
+
         Ok(RtDebugData {
-            rays: ray_buffer.to_local_copy(),
-            instances: instance_buffer.to_local_copy()
+            rays: self.ray_module.local_ray_buffer.buffer_data().to_local_copy(),
+            instances: self.cluster_module.local_instance_buffer.buffer_data().to_local_copy()
         })
     }
 
     pub(super) unsafe fn copy_sources_debug(&mut self, scene: &Scene) {
-        let last_rt_pos = scene.listener.location;
-        let last_rt_rot = scene.listener.rotation;
+        let rt_pos = scene.listener.location;
+        let rt_rot = scene.listener.rotation;
 
         self.device
             .reset_fences(from_ref(&self.fence))
@@ -289,7 +289,7 @@ impl RayTracer {
         self.ray_module.stage_sources(&mut self.command_buffer, &scene.sources);
 
         // Trace the rays
-        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, last_rt_rot);
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, rt_pos, rt_rot);
 
         // Submit the command buffer
         self.device
@@ -308,12 +308,12 @@ impl RayTracer {
             .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
             .expect("Failed to wait for fence!");
 
-        self.last_rt_pos = last_rt_pos; // update it only once it's fully done
-        self.last_rt_rot = last_rt_rot;
+        self.last_rt_pos = rt_pos; // update it only once it's fully done
+        self.last_rt_rot = rt_rot;
     }
 
-    pub(super) fn instance_buffer(&self) -> Buffer {
-        self.cluster_module.instance_buffer()
+    pub(super) fn instance_buffer(&self) -> &VulkanBuffer<InstanceBufferData> {
+        &self.cluster_module.instance_buffer
     }
 
     pub(super) fn last_rt_pos(&self) -> Vec3 {

@@ -3,7 +3,9 @@ use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, Dep
 use ash::Device;
 use crevice::std430::{Mat3, Std430, Vec3};
 use std::array::from_ref;
+use crate::audio_engine::gpu_structures::{InstanceBufferData, RtOutputBufferData};
 use crate::util::workgroup_div;
+use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
 
@@ -20,8 +22,8 @@ impl DebugRayModule {
     pub(super) fn new(
         device: Device,
         descriptor_pool: DescriptorPool,
-        sources_buffer: Buffer,
-        instance_buffer: Buffer,
+        sources_buffer: &VulkanBuffer<RtOutputBufferData>,
+        instance_buffer: &VulkanBuffer<InstanceBufferData>,
         queue: Queue
     ) -> Self {
         let (descriptor_set, descriptor_set_layout) = unsafe {
@@ -56,10 +58,10 @@ impl DebugRayModule {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(sources_buffer)
+                    .buffer(sources_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(instance_buffer)
+                    .buffer(instance_buffer.handle())
                     .range(WHOLE_SIZE),
             ];
 

@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_structures::{DelayBuffer, InstanceBuffer, GPU_WINDOW_SIZE};
+use crate::audio_engine::gpu_structures::{DelayBufferData, FftBufferData, InstanceBufferData, GPU_WINDOW_SIZE};
 use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use crevice::std430::{Std430, Vec3};
@@ -6,9 +6,10 @@ use std::array::from_ref;
 use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateInfo, Allocator, MemoryUsage};
-use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
+use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 
 pub(crate) struct DelayModule {
     device: Device,
@@ -18,7 +19,7 @@ pub(crate) struct DelayModule {
     descriptor_set_layout: DescriptorSetLayout,
     queue: Queue,
 
-    delay_buffer: Buffer,
+    pub(super) delay_buffer: VulkanBuffer<DelayBufferData>,
 }
 
 impl DelayModule {
@@ -28,28 +29,16 @@ impl DelayModule {
         device: Device,
         queue: (Queue, u32),
         descriptor_pool: DescriptorPool,
-        instance_buffer: Buffer,
-        fft_starting_buffer: Buffer,
+        instance_buffer: &VulkanBuffer<InstanceBufferData>,
+        fft_starting_buffer: &VulkanBuffer<FftBufferData>,
         constants: SignalProcessorConstants,
     ) -> Self {
-        let (mut delay_buffer, delay_buffer_memory) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(DelayBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let mut delay_buffer = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            let allocation_info = AllocationCreateInfo {
-                usage: MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        initializer.clear_buffer(&device, queue.0.clone(), &mut delay_buffer, DelayBuffer::max_size() as DeviceSize);
+        initializer.init_buffer(&mut delay_buffer, InitMode::Zeroed, queue, &device);
 
         let (descriptor_set, descriptor_set_layout) = {
             let bindings = [
@@ -90,15 +79,15 @@ impl DelayModule {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(instance_buffer)
+                    .buffer(instance_buffer.handle())
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
-                    .buffer(delay_buffer)
+                    .buffer(delay_buffer.handle())
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
-                    .buffer(fft_starting_buffer)
+                    .buffer(fft_starting_buffer.handle())
                     .range(WHOLE_SIZE),
             ];
 
@@ -222,9 +211,5 @@ impl DelayModule {
             &[],
             &[]
         );
-    }
-
-    pub(super) fn delay_buffer(&self) -> Buffer {
-        self.delay_buffer
     }
 }

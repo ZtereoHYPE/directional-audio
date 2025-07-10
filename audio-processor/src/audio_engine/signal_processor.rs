@@ -6,13 +6,12 @@ mod hrtf;
 pub mod transfer;
 mod delay;
 
-use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{DelayBuffer, DownloadBuffer, FftBuffer, FftUbo, GpuFrame, GpuWindow, InstanceBuffer, UploadBuffer, GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
+use crate::audio_engine::gpu_structures::{DelayBufferData, DownloadBufferData, FftBufferData, FftUboData, GpuFrame, GpuWindow, InstanceBufferData, UploadBufferData, GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
 use crate::audio_engine::signal_processor::delay::DelayModule;
 use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
 use crate::audio_engine::signal_processor::transfer::TransferModule;
-use crate::audio_engine::{read_file_words, GpuData};
+use crate::audio_engine::{read_file_words, DynamicBufferData};
 use crate::scene::Scene;
 use crate::util::vec3;
 use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PushConstantRange, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
@@ -25,6 +24,8 @@ use std::slice::from_ref;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 use crate::scene::listener::AudioListener;
 use crate::scene::source::{AudioSource, FRAME_SIZE};
+use crate::vulkan::buffer::VulkanBuffer;
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -68,8 +69,7 @@ pub struct SignalProcessor {
     compute_command_buffer: CommandBuffer,
     transfer_command_buffer: CommandBuffer,
 
-    instance_buffer: Buffer,
-    instance_buffer_memory: Allocation,
+    instance_buffer: VulkanBuffer<InstanceBufferData>,
 
     delay_module: DelayModule,
     fft_module: FftModule,
@@ -175,28 +175,14 @@ impl SignalProcessor {
                 .expect("Failed to create descriptor pool")
         };
 
-        let (mut instance_buffer, instance_buffer_memory) = {
-            let buffer_info = BufferCreateInfo::default()
-                .size(InstanceBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST)
-                .queue_family_indices(from_ref(&compute_queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            let (buffer, mut memory) = buffer_allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer");
-
-            (buffer, memory)
-        };
+        let mut instance_buffer = VulkanBuffer::new(
+            BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST,
+            buffer_allocator.clone()
+        );
 
         // Populate the instance buffer
-        let mut data = InstanceBuffer::from_scene_data(scene);
-        buffer_initializer.upload_buffer_onetime(&device, compute_queue.0.clone(), data, &mut instance_buffer);
+        let mut data = Box::new(InstanceBufferData::from_scene_data(scene));
+        buffer_initializer.init_buffer(&mut instance_buffer, InitMode::Populated(data), compute_queue, &device);
 
         let fft_module = FftModule::new(
             buffer_allocator.clone(),
@@ -214,7 +200,7 @@ impl SignalProcessor {
             device.clone(),
             compute_queue.clone(),
             descriptor_pool,
-            instance_buffer,
+            &instance_buffer,
             fft_module.starting_buffer(),
             constants,
         );
@@ -226,7 +212,7 @@ impl SignalProcessor {
             device.clone(),
             compute_queue.clone(),
             descriptor_pool,
-            instance_buffer,
+            &instance_buffer,
             fft_module.starting_buffer(), // todo: this is hardcoded for the size
             constants
         );
@@ -235,8 +221,8 @@ impl SignalProcessor {
             buffer_allocator.clone(),
             device.clone(),
             transfer_queue,
-            delay_module.delay_buffer(),
-            hrtf_module.output_buffer()
+            &delay_module.delay_buffer,
+            &hrtf_module.output_buffer
         );
 
         Self {
@@ -249,7 +235,6 @@ impl SignalProcessor {
             transfer_command_buffer,
 
             instance_buffer,
-            instance_buffer_memory,
 
             delay_module,
             fft_module,
@@ -288,7 +273,7 @@ impl SignalProcessor {
 
         let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
         let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
-        let (start, end) = DownloadBuffer::last_frame_range();
+        let (start, end) = DownloadBufferData::last_frame_range();
 
         (
             GpuFrame::try_from(&left[start..end]).unwrap(),
@@ -296,8 +281,8 @@ impl SignalProcessor {
         )
     }
 
-    pub(super) fn instance_buffer(&self) -> Buffer {
-        self.instance_buffer
+    pub(super) fn instance_buffer(&self) -> &VulkanBuffer<InstanceBufferData> {
+        &self.instance_buffer
     }
 }
 

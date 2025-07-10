@@ -1,7 +1,6 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 
-use crate::audio_engine::buffer_initializer::BufferInitializer;
-use crate::audio_engine::gpu_structures::{GpuFrame, GpuWindow, InstanceBuffer};
+use crate::audio_engine::gpu_structures::{GpuFrame, GpuWindow, InstanceBufferData};
 use crate::audio_engine::ray_tracer::{RayTracer, RtDebugData};
 use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::source::{Frame, FRAME_SIZE};
@@ -15,19 +14,14 @@ use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
 use std::{fs::File, path::Path};
 use vk_mem::Allocation;
+use crate::vulkan::buffer::BufferOps;
+use crate::vulkan::buffer_initializer::BufferInitializer;
 
 pub(crate) mod signal_processor;
 pub(crate) mod gpu_structures;
 pub(crate) mod ray_tracer;
-mod buffer_initializer;
 
-struct GpuBuffer {
-    buffer: Buffer,
-    buffer_memory: Allocation,
-    size: usize,
-}
-
-pub(crate) trait GpuData {
+pub(crate) trait DynamicBufferData {
     unsafe fn serialize(&self, dst: *mut u8);
     fn size(&self) -> usize;
 }
@@ -191,15 +185,15 @@ impl AudioEngine {
                 None
             };
 
-            let mut src_audio_instances = self.ray_tracer.instance_buffer();
-            let mut dst_audio_instances = self.signal_processor.instance_buffer();
+            let mut src_audio_instances = self.ray_tracer.instance_buffer().handle();
+            let mut dst_audio_instances = self.signal_processor.instance_buffer().handle();
 
             self.buffer_initializer.copy_buffer(
-                &self.device, 
-                self.compute_queue, 
-                &mut src_audio_instances, 
-                &mut dst_audio_instances, 
-                InstanceBuffer::max_size() as DeviceSize
+                &self.device,
+                self.compute_queue,
+                &mut src_audio_instances,
+                &mut dst_audio_instances,
+                size_of::<InstanceBufferData>() as DeviceSize
             );
 
             let (left, right) = self.signal_processor.process_frames(

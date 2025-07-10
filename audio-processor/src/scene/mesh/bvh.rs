@@ -1,4 +1,4 @@
-use crate::audio_engine::GpuData;
+use crate::audio_engine::DynamicBufferData;
 use crate::scene::mesh::Triangle;
 use crate::util::vec3::{MAX_VEC3, MIN_VEC3, ZERO};
 use crate::util::{vec3, Axis};
@@ -9,7 +9,7 @@ const BVH_SPLIT_ATTEMPTS: usize = 8;
 
 #[derive(Clone)]
 pub(crate) struct BvhBuffer(pub Vec<BvhNode>);
-impl GpuData for BvhBuffer {
+impl DynamicBufferData for BvhBuffer {
     unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         std::ptr::copy_nonoverlapping(
             (&self.0[..] as *const [BvhNode]).cast(),

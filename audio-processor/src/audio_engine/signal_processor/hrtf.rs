@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_structures::{DownloadBuffer, GpuWindow, InstanceBuffer, GPU_WINDOW_SIZE, MAX_INSTANCES};
+use crate::audio_engine::gpu_structures::{DownloadBufferData, FftBufferData, GpuWindow, InstanceBufferData, GPU_WINDOW_SIZE, MAX_INSTANCES};
 use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use std::array::from_ref;
@@ -6,11 +6,12 @@ use std::mem::transmute;
 use std::rc::Rc;
 use crevice::std430::Std430;
 use vk_mem::{Alloc, Allocator};
-use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::scene::listener::hrtf_filter::HrtfFilter;
 use crate::util::workgroup_div;
+use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 
 pub struct HrtfModule {
     device: Device,
@@ -20,7 +21,7 @@ pub struct HrtfModule {
     descriptor_set_layout: DescriptorSetLayout,
     queue: Queue,
 
-    output: Buffer,
+    pub(super) output_buffer: VulkanBuffer<DownloadBufferData>,
 }
 
 impl HrtfModule {
@@ -31,28 +32,16 @@ impl HrtfModule {
         device: Device,
         queue: (Queue, u32),
         descriptor_pool: DescriptorPool,
-        instance_buffer: Buffer,
-        fft_ending_buffer: Buffer,
+        instance_buffer: &VulkanBuffer<InstanceBufferData>,
+        fft_ending_buffer: &VulkanBuffer<FftBufferData>,
         constants: SignalProcessorConstants,
     ) -> Self {
-        let (mut output, output_memory) = {
-            let buffer_info = BufferCreateInfo::default()
-                .size(DownloadBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let mut output_buffer = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        initializer.clear_buffer(&device, queue.0.clone(), &mut output, size_of::<GpuWindow>() as u64 * 2);
+        initializer.init_buffer(&mut output_buffer, InitMode::Zeroed, queue, &device);
 
         let ((mut hrtf_left, hrtf_left_mem, hrtf_left_view), (mut hrtf_right, hrtf_right_mem, hrtf_right_view)) = {
             let image_info = ImageCreateInfo::default()
@@ -111,7 +100,7 @@ impl HrtfModule {
             depth: filter.options.azimuth_samples,
         };
 
-        initializer.upload_image_onetime(
+        initializer.init_image(
             &device,
             queue.0.clone(),
             filter.left,
@@ -120,7 +109,7 @@ impl HrtfModule {
             extent
         );
 
-        initializer.upload_image_onetime(
+        initializer.init_image(
             &device,
             queue.0.clone(),
             filter.right,
@@ -203,20 +192,20 @@ impl HrtfModule {
 
             let buffer_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(instance_buffer)
+                    .buffer(instance_buffer.handle())
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
-                    .buffer(fft_ending_buffer) // TODO: this is hardcoded for window size 2048!
+                    .buffer(fft_ending_buffer.handle()) // TODO: this is hardcoded for window size 2048!
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
-                    .buffer(output)
+                    .buffer(output_buffer.handle())
                     .offset(0)
                     .range(size_of::<GpuWindow>() as _),
 
                 DescriptorBufferInfo::default()
-                    .buffer(output)
+                    .buffer(output_buffer.handle())
                     .offset(size_of::<GpuWindow>() as _)
                     .range(WHOLE_SIZE),
             ];
@@ -336,7 +325,7 @@ impl HrtfModule {
             descriptor_set_layout,
             queue: queue.0,
 
-            output
+            output_buffer
         }
     }
 
@@ -382,10 +371,6 @@ impl HrtfModule {
     }
 
     pub(super) unsafe fn wipe_output(&mut self, command_buffer: &mut CommandBuffer) {
-        self.device.cmd_fill_buffer(*command_buffer, self.output, 0, DownloadBuffer::max_size() as _, 0);
-    }
-
-    pub(super) unsafe fn output_buffer(&self) -> Buffer {
-        self.output
+        self.device.cmd_fill_buffer(*command_buffer, self.output_buffer.handle(), 0, size_of::<DownloadBufferData>() as _, 0);
     }
 }

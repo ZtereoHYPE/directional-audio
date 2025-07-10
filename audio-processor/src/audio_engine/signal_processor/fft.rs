@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_structures::{FftBuffer, FftUbo, GPU_WINDOW_SIZE};
+use crate::audio_engine::gpu_structures::{FftBufferData, FftUboData, GPU_WINDOW_SIZE};
 use crate::util::complex;
 use crate::util::complex::{root_of_unity, scalar_mult};
 use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
@@ -9,9 +9,10 @@ use std::f32::consts::PI;
 use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
-use crate::audio_engine::buffer_initializer::BufferInitializer;
 use crate::audio_engine::read_file_words;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
+use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 
 pub(crate) const RADIX_AMT: usize = 3;
 pub(crate) const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
@@ -49,7 +50,8 @@ pub(crate) struct FftModule {
     pipeline_layout: PipelineLayout,
     descriptor_sets: Vec<DescriptorSet>,
     descriptor_set_layout: DescriptorSetLayout,
-    buffers: [Buffer; 2],
+    buffers: [VulkanBuffer<FftBufferData>; 2],
+    fft_ubos: Vec<VulkanBuffer<FftUboData>>,
     queue: Queue,
     stages: Vec<FftStage>,
 }
@@ -64,77 +66,45 @@ impl FftModule {
         stages: Vec<FftStage>,
         constants: SignalProcessorConstants
     ) -> Self {
-        let (fft_ubos, fft_ubo_memories) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(size_of::<FftUbo>() as u64)
-                .usage(BufferUsageFlags::UNIFORM_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                flags: AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
-                ..Default::default()
-            };
-
+        let fft_ubos = unsafe {
             let mut buffers = vec![];
-            let mut memories = vec![];
 
             // Create a UBO per stage
             for stage in &stages {
-                let (buffer, mut memory) = allocator
-                    .create_buffer(&buffer_info, &allocation_info)
-                    .expect("Failed to create buffer");
-
-                let map = allocator
-                    .map_memory(&mut memory)
-                    .expect("Failed to map memory");
-
-                let inverse = false;
+                let mut buffer = VulkanBuffer::new(
+                    BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::TRANSFER_DST,
+                    allocator.clone()
+                );
 
                 // Populate the UBO
+                let inverse = false;
                 let direction: f32 = if !inverse { -1.0 } else { 1.0 };
                 let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32};
-                let data = FftUbo {
+                let data = Box::new(FftUboData {
                     split_size: stage.split_size,
                     radix_stride: stage.stride,
                     angle_direction_factor: direction,
                     angle_spin_factor: direction * (PI / (stage.split_size as f32)),
                     normalization_factor: normalization,
-                };
+                });
 
-                std::ptr::write(map.cast(), data);
-
-                allocator.unmap_memory(&mut memory);
+                initializer.init_buffer(&mut buffer, InitMode::Populated(data), queue, &device);
                 buffers.push(buffer);
-                memories.push(memory);
             }
 
-            (buffers, memories)
+            buffers
         };
 
-        let ((fft_gpu_buf_1, fft_gpu_mem_1), (fft_gpu_buf_2, fft_gpu_mem_2)) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(FftBuffer::max_size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
+        let fft_buffer_0 = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            (
-                allocator
-                    .create_buffer(&buffer_info, &allocation_info)
-                    .expect("Failed to create buffer"),
-
-                allocator
-                    .create_buffer(&buffer_info, &allocation_info)
-                    .expect("Failed to create buffer"),
-            )
-        };
+        let fft_buffer_1 = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
 
         let (descriptor_sets, descriptor_set_layout) = unsafe {
             // Create layout, which is the same across every stage
@@ -182,18 +152,18 @@ impl FftModule {
                 .iter()
                 .map(|ubo| {
                     DescriptorBufferInfo::default()
-                        .buffer(*ubo)
+                        .buffer(ubo.handle())
                         .range(WHOLE_SIZE)
                 })
                 .collect::<Vec<_>>();
 
             let ssbo_infos = (
                 DescriptorBufferInfo::default()
-                    .buffer(fft_gpu_buf_1)
+                    .buffer(fft_buffer_0.handle())
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
-                    .buffer(fft_gpu_buf_2)
+                    .buffer(fft_buffer_1.handle())
                     .range(WHOLE_SIZE),
             );
 
@@ -295,7 +265,8 @@ impl FftModule {
             pipeline_layout,
             descriptor_sets,
             descriptor_set_layout,
-            buffers: [fft_gpu_buf_1, fft_gpu_buf_2],
+            buffers: [fft_buffer_0, fft_buffer_1],
+            fft_ubos,
             queue: queue.0,
             stages,
         }
@@ -343,8 +314,8 @@ impl FftModule {
         (self.stages.len() % 2) as u32 // this is the index of the buffer where the result will be
     }
 
-    pub fn starting_buffer(&self) -> Buffer {
-        self.buffers[0]
+    pub fn starting_buffer(&self) -> &VulkanBuffer<FftBufferData> {
+        &self.buffers[0]
     }
 
     pub(super) fn fft_stages(input_size: usize) -> Vec<FftStage> {
