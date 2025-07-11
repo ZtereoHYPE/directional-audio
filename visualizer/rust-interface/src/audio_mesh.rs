@@ -13,7 +13,6 @@ pub struct AudioMeshNode {
     base: Base<StaticBody3D>
 }
 
-// Default Godot methods
 #[godot_api]
 impl IStaticBody3D for AudioMeshNode {
     fn enter_tree(&mut self) {
@@ -32,10 +31,12 @@ impl AudioMeshNode {
     fn get_mesh_triangles_rec(node: Gd<Node>, triangles: &mut Vec<Triangle>) {
         if node.is_class("MeshInstance3D") {
             // push something to vector
-            let mesh = node.clone().cast::<MeshInstance3D>().get_mesh();
+            let mesh_node = node.clone().cast::<MeshInstance3D>();
+            let mesh = mesh_node.get_mesh();
 
             if let Some(mesh) = mesh {
-                triangles.append(&mut Self::extract_mesh_triangles(mesh))
+                let offset = mesh_node.get_global_position();
+                triangles.append(&mut Self::extract_mesh_triangles(mesh, offset))
             }
         }
 
@@ -44,7 +45,7 @@ impl AudioMeshNode {
         }
     }
 
-    fn extract_mesh_triangles(mesh: Gd<Mesh>) -> Vec<Triangle> {
+    fn extract_mesh_triangles(mesh: Gd<Mesh>, offset: Vector3) -> Vec<Triangle> {
         let mut triangles = vec![];
         for surf_idx in 0..mesh.get_surface_count() {
             let arrays = mesh.surface_get_arrays(surf_idx);
@@ -57,7 +58,7 @@ impl AudioMeshNode {
                 let mut mesh_tris = (0..indices.len())
                     .map(|idx| indices.get(idx).unwrap() as usize)
                     .map(|indice| vertices.get(indice).unwrap())
-                    .map(|vertex| to_vec(vertex))
+                    .map(|vertex| to_vec(vertex + offset))
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
@@ -70,7 +71,7 @@ impl AudioMeshNode {
 
                 let mut mesh_tris = (0..vertices.len())
                     .map(|idx| vertices.get(idx).unwrap())
-                    .map(|vertex| to_vec(vertex))
+                    .map(|vertex| to_vec(vertex + offset))
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
@@ -83,4 +84,3 @@ impl AudioMeshNode {
         triangles
     }
 }
-
