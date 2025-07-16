@@ -3,8 +3,8 @@ use crate::audio_engine::signal_processor::fft::FftBufferData;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::audio_engine::{read_file_words, InstanceBufferData};
 use crate::scene::source::FRAME_SIZE;
-use crate::util::Byteable;
-use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
+use crate::util::AsBytes;
+use crate::vulkan::buffer::{BufferOps, InlineBufferData, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
@@ -35,7 +35,7 @@ impl DelayModule {
         fft_starting_buffer: &VulkanBuffer<FftBufferData>,
         constants: SignalProcessorConstants,
     ) -> Self {
-        let mut delay_buffer = VulkanBuffer::new(
+        let mut delay_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
@@ -221,4 +221,4 @@ pub(crate) struct DelayBufferData {
     frames: [[[Vec2; FRAME_SIZE]; MAX_DELAY_FRAMES]; MAX_SOURCES]
 }
 
-impl BufferData for DelayBufferData {}
+impl InlineBufferData for DelayBufferData {}

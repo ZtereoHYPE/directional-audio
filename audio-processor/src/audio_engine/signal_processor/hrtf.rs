@@ -4,7 +4,7 @@ use crate::audio_engine::signal_processor::transfer::DownloadBufferData;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::audio_engine::{read_file_words, GpuWindow, InstanceBufferData};
 use crate::scene::listener::hrtf_filter::HrtfFilter;
-use crate::util::{workgroup_div, Byteable};
+use crate::util::{workgroup_div, AsBytes};
 use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
@@ -36,7 +36,7 @@ impl HrtfModule {
         fft_ending_buffer: &VulkanBuffer<FftBufferData>,
         constants: SignalProcessorConstants,
     ) -> Self {
-        let mut output_buffer = VulkanBuffer::new(
+        let mut output_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
@@ -103,7 +103,7 @@ impl HrtfModule {
         initializer.init_image(
             &device,
             queue.0.clone(),
-            filter.left,
+            Box::new(filter.left),
             &mut hrtf_left,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             extent
@@ -112,7 +112,7 @@ impl HrtfModule {
         initializer.init_image(
             &device,
             queue.0.clone(),
-            filter.right,
+            Box::new(filter.right),
             &mut hrtf_right,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             extent

@@ -1,6 +1,6 @@
-use crate::audio_engine::DynamicBufferData;
-use crate::scene::mesh::bvh::{BvhBuffer, BvhBuilder};
+use crate::scene::mesh::bvh::{BvhBufferData, BvhBuilder};
 use crate::util::{vec3, Axis};
+use crate::vulkan::buffer::BufferData;
 use glam::{Vec3, Vec3A};
 
 pub(crate) mod bvh;
@@ -39,9 +39,9 @@ impl Triangle {
 }
 
 #[derive(Clone)]
-pub(crate) struct TriangleBuffer(Vec<Triangle>);
+pub(crate) struct TriangleBufferData(Vec<Triangle>);
 
-impl DynamicBufferData for TriangleBuffer {
+impl BufferData for TriangleBufferData {
     unsafe fn serialize(&self, dst: *mut u8) { unsafe {
         if self.0.is_empty() {
             return;
@@ -60,8 +60,8 @@ impl DynamicBufferData for TriangleBuffer {
 }
 
 pub(crate) struct SceneMesh {
-    pub(crate) bvh: BvhBuffer,
-    pub(crate) triangles: TriangleBuffer,
+    pub(crate) bvh: BvhBufferData,
+    pub(crate) triangles: TriangleBufferData,
 }
 
 impl SceneMesh {
@@ -70,7 +70,7 @@ impl SceneMesh {
 
         Self {
             bvh,
-            triangles: TriangleBuffer(triangles)
+            triangles: TriangleBufferData(triangles)
         }
     }
 }

@@ -7,13 +7,7 @@ use std::rc::Rc;
 use std::slice::from_ref;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
 
-// todo: this interface could be improved to allow any form of data to be represented here
-//       instead of just inline data (eg. provide serialize(), size(), max_size(), etc...)
-pub(crate) trait InlineData : Sized {
-
-}
-
-pub(crate) trait BufferData : Sized {
+pub(crate) trait InlineBufferData: BufferData {
     const REGION: BufferCopy = BufferCopy {
         src_offset: 0,
         dst_offset: 0,
@@ -53,6 +47,27 @@ pub(crate) trait BufferData : Sized {
     }
 }
 
+pub(crate) trait BufferData: Sized {
+    unsafe fn serialize(&self, dst: *mut u8);
+    fn size(&self) -> usize;
+}
+
+/// Implement the buffer data functions for all inline data
+impl<T: InlineBufferData> BufferData for T {
+    unsafe fn serialize(&self, dst: *mut u8) { unsafe {
+        std::ptr::copy_nonoverlapping(
+            (self as *const T).cast(),
+            dst,
+            self.size()
+        );
+    }}
+
+    fn size(&self) -> usize {
+        size_of::<T>()
+    }
+}
+
+
 pub(crate) trait BufferOps<T: BufferData>  {
     fn base(&self) -> &BufferBase<T>;
     fn base_mut(&mut self) -> &mut BufferBase<T>;
@@ -79,9 +94,13 @@ pub(crate) struct VulkanBuffer<T: BufferData> {
 }
 
 impl<T: BufferData> VulkanBuffer<T> {
-    pub(crate) fn new(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
+    pub(crate) fn new_dynamic(usage: BufferUsageFlags, data: T, allocator: Rc<Allocator>) -> Self {
+        Self::new(usage, data.size(), allocator)
+    }
+
+    fn new(usage: BufferUsageFlags, size: usize, allocator: Rc<Allocator>) -> Self {
         let buffer_info = BufferCreateInfo::default()
-            .size(size_of::<T>() as DeviceSize)
+            .size(size as DeviceSize)
             .usage(usage)
             .sharing_mode(SharingMode::EXCLUSIVE);
 
@@ -107,6 +126,12 @@ impl<T: BufferData> VulkanBuffer<T> {
     }
 }
 
+impl<T: BufferData> VulkanBuffer<T> {
+    pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
+        Self::new(usage, size_of::<T>(), allocator)
+    }
+}
+
 impl<T: BufferData> BufferOps<T> for VulkanBuffer<T> {
     fn base(&self) -> &BufferBase<T> { &self.base }
     fn base_mut(&mut self) -> &mut BufferBase<T> { &mut self.base }
@@ -126,13 +151,13 @@ impl<T: BufferData> Drop for VulkanBuffer<T> {
 /// # Safety:
 /// To avoid UB caused by interior mutability, UnsafeCell<T> is used to store the pointer
 /// to the locally-mapped memory.
-pub(crate) struct LocalVulkanBuffer<T: BufferData> { // todo: require + InlineData
+pub(crate) struct LocalVulkanBuffer<T: InlineBufferData> {
     base: BufferBase<T>,
-    map: *mut UnsafeCell<T>, // todo: check if there's a better way than *mut to store this
+    map: *mut UnsafeCell<T>,
 }
 
-impl<T: BufferData> LocalVulkanBuffer<T> {
-    pub(crate) fn new(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
+impl<T: InlineBufferData> LocalVulkanBuffer<T> {
+    pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
         let buffer_info = BufferCreateInfo::default()
             .size(size_of::<T>() as DeviceSize)
             .usage(usage)
@@ -188,12 +213,12 @@ impl<T: BufferData> LocalVulkanBuffer<T> {
     }
 }
 
-impl<T: BufferData> BufferOps<T> for LocalVulkanBuffer<T> {
+impl<T: InlineBufferData> BufferOps<T> for LocalVulkanBuffer<T> {
     fn base(&self) -> &BufferBase<T> { &self.base }
     fn base_mut(&mut self) -> &mut BufferBase<T> { &mut self.base }
 }
 
-impl<T: BufferData> Drop for LocalVulkanBuffer<T> {
+impl<T: InlineBufferData> Drop for LocalVulkanBuffer<T> {
     fn drop(&mut self) {
         let allocator = self.base().allocator.clone();
         unsafe {

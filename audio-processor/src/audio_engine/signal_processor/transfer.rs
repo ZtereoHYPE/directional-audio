@@ -1,8 +1,8 @@
 use crate::audio_engine::gpu_constants::{MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
 use crate::audio_engine::signal_processor::delay::DelayBufferData;
-use crate::audio_engine::{DynamicBufferData, GpuFrame, GpuWindow};
+use crate::audio_engine::{GpuFrame, GpuWindow};
 use crate::scene::source::{AudioSource, FRAME_SIZE};
-use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer::{BufferOps, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use ash::prelude::VkResult;
 use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, FenceCreateInfo, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo};
 use ash::Device;
@@ -33,12 +33,12 @@ impl TransferModule {
         input_buffer: &VulkanBuffer<DelayBufferData>,
         output_buffer: &VulkanBuffer<DownloadBufferData>,
     ) -> TransferModule {
-        let upload_buffer = LocalVulkanBuffer::new(
+        let upload_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC,
             allocator.clone()
         );
         
-        let download_buffer = LocalVulkanBuffer::new(
+        let download_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST,
             allocator.clone()
         );
@@ -180,14 +180,14 @@ pub(crate) unsafe fn copy_from_box<T>(src: &Box<T>, dst: *mut T) {
 pub(crate) struct UploadBufferData {
     pub frames: [GpuFrame; MAX_SOURCES]
 }
-impl BufferData for UploadBufferData {}
+impl InlineBufferData for UploadBufferData {}
 
 #[repr(C)]
 pub(crate) struct DownloadBufferData {
     pub windows: [GpuWindow; 2]
 }
 
-impl BufferData for DownloadBufferData {}
+impl InlineBufferData for DownloadBufferData {}
 
 impl DownloadBufferData {
     pub(crate) unsafe fn get_windows(&self) -> (Box<GpuWindow>, Box<GpuWindow>) { unsafe {

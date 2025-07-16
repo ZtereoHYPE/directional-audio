@@ -1,6 +1,6 @@
 use crate::audio_engine::ray_tracer::rays::SourceBufferData;
 use crate::audio_engine::{read_file_words, InstanceBufferData};
-use crate::util::{workgroup_div, Byteable};
+use crate::util::{workgroup_div, AsBytes};
 use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
 use ash::vk::{AccessFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;

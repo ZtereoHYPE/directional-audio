@@ -1,7 +1,7 @@
 use crate::audio_engine::gpu_constants::GPU_WINDOW_SIZE;
 use crate::audio_engine::signal_processor::fft::FftModule;
-use crate::audio_engine::DynamicBufferData;
 use crate::util::{complex, vec3};
+use crate::vulkan::buffer::BufferData;
 use glam::{vec2, Vec2, Vec3, Vec4};
 use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
@@ -86,7 +86,7 @@ pub struct HrtfFilterChannel {
     data: Vec<Vec<Vec<Vec4>>> // azimuth<altitude<frequency<dampening>>>
 }
 
-impl DynamicBufferData for HrtfFilterChannel {
+impl BufferData for HrtfFilterChannel {
     unsafe fn serialize(&self, mut dst: *mut u8) {
         for azimuth in &self.data {
             for elevation in azimuth {

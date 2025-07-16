@@ -5,7 +5,7 @@ use crate::audio_engine::ray_tracer::{RayTracer, RtDebugData};
 use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::source::{Frame, FRAME_SIZE};
 use crate::scene::Scene;
-use crate::vulkan::buffer::{BufferData, BufferOps};
+use crate::vulkan::buffer::{BufferOps, InlineBufferData};
 use crate::vulkan::buffer_initializer::BufferInitializer;
 use ash::ext::debug_utils;
 use ash::vk::{ApplicationInfo, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
@@ -26,11 +26,6 @@ pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 
 /// Represents the window used for partitioned convolution
 pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
-
-pub(crate) trait DynamicBufferData {
-    unsafe fn serialize(&self, dst: *mut u8);
-    fn size(&self) -> usize;
-}
 
 pub struct AudioEngine {
     scene: Scene,
@@ -307,7 +302,7 @@ pub struct InstanceBufferData {
     pub instances: [AudioInstance; MAX_INSTANCES],
 }
 
-impl BufferData for InstanceBufferData {}
+impl InlineBufferData for InstanceBufferData {}
 
 impl InstanceBufferData {
     pub(crate) fn from_scene_data(scene: &Scene) -> Self {

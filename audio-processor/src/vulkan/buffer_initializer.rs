@@ -1,12 +1,10 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unused)]
 
-use crate::audio_engine::DynamicBufferData;
 use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, DeviceSize, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
-use std::ptr::copy_nonoverlapping;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 
 pub(crate) enum InitMode<T: BufferData> {
@@ -127,39 +125,30 @@ impl BufferInitializer {
         let InitMode::Populated(data) = mode else { unreachable!() };
 
         unsafe {
+            let region = BufferCopy {
+                src_offset: 0,
+                dst_offset: 0,
+                size: data.size() as _,
+            };
+
             // stage data and begin command
             self.stage_data(device, data);
             self.begin_command(device);
 
             // perform copy
-            device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, buffer.handle(), T::region());
+            device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, buffer.handle(), from_ref(&region));
 
             // submit
             self.end_command(device, queue.0);
         }
     }
 
-    pub(crate) unsafe fn init_dynamic_buffer<T: DynamicBufferData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Buffer) {
-        let size = src.size() as u64;
-
-        // stage data and begin command
-        self.stage_dynamic_data(device, src);
-        self.begin_command(device);
-
-        // perform copy
-        let region = BufferCopy::default().size(size);
-        device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, *dst, from_ref(&region));
-
-        // submit
-        self.end_command(device, queue);
-    }
-
     // warning: this also transitions the image layout
-    pub(crate) unsafe fn init_image<T: DynamicBufferData>(&mut self, device: &Device, queue: Queue, src: T, dst: &mut Image, dst_layout: ImageLayout, dst_extent: Extent3D) {
+    pub(crate) unsafe fn init_image<T: BufferData>(&mut self, device: &Device, queue: Queue, src: Box<T>, dst: &mut Image, dst_layout: ImageLayout, dst_extent: Extent3D) {
         let size = src.size() as u64;
 
         // stage data and begin command
-        self.stage_dynamic_data(device, src);
+        self.stage_data(device, src);
         self.begin_command(device);
 
         // transition the image's layout to the required one
@@ -275,23 +264,8 @@ impl BufferInitializer {
             todo!("Uploading data bigger than the staging buffer isn't supported yet");
         }
 
-        copy_nonoverlapping(
-            (data.as_ref() as *const T).cast(),
-            self.staging_map,
-            size_of::<T>()
-        );
-        self.allocator
-            .flush_allocation(&self.staging_memory, 0, WHOLE_SIZE)
-            .expect("Failed to flush allocation");
-    }
+        data.serialize(self.staging_map);
 
-    unsafe fn stage_dynamic_data<T: DynamicBufferData>(&self, device: &Device, src: T) {
-        if src.size() > STAGING_BUFFER_SIZE {
-            todo!("Uploading data bigger than the staging buffer isn't supported yet");
-        }
-
-        // copy data to the staging buffer
-        src.serialize(self.staging_map);
         self.allocator
             .flush_allocation(&self.staging_memory, 0, WHOLE_SIZE)
             .expect("Failed to flush allocation");

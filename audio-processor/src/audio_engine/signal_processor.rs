@@ -6,16 +6,16 @@ mod hrtf;
 pub mod transfer;
 mod delay;
 
-use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
 use crate::audio_engine::signal_processor::delay::DelayModule;
 use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
 use crate::audio_engine::signal_processor::transfer::{DownloadBufferData, TransferModule};
-use crate::audio_engine::{DynamicBufferData, GpuFrame, GpuWindow, InstanceBufferData};
+use crate::audio_engine::{GpuFrame, GpuWindow, InstanceBufferData};
 use crate::scene::listener::AudioListener;
 use crate::scene::source::{AudioSource, FRAME_SIZE};
 use crate::scene::Scene;
-use crate::vulkan::buffer::{BufferData, VulkanBuffer};
+use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, PhysicalDevice, Queue, SpecializationMapEntry};
 use ash::{Device, Instance};
@@ -173,7 +173,7 @@ impl SignalProcessor {
                 .expect("Failed to create descriptor pool")
         };
 
-        let mut instance_buffer = VulkanBuffer::new(
+        let mut instance_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST,
             buffer_allocator.clone()
         );

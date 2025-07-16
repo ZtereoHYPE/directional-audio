@@ -4,10 +4,10 @@ use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
 use crate::audio_engine::ray_tracer::debug::DebugRayModule;
 use crate::audio_engine::ray_tracer::kmeans::KMeansModule;
 use crate::audio_engine::ray_tracer::rays::{RayBufferData, RayModule};
-use crate::audio_engine::{DynamicBufferData, InstanceBufferData};
+use crate::audio_engine::InstanceBufferData;
 use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
 use crate::scene::Scene;
-use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
+use crate::vulkan::buffer::{BufferOps, InlineBufferData, VulkanBuffer};
 use crate::vulkan::buffer_initializer::BufferInitializer;
 use ash::prelude::VkResult;
 use ash::vk::{CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, Fence, FenceCreateInfo, PhysicalDevice, Queue, SpecializationMapEntry, SubmitInfo};
@@ -334,4 +334,4 @@ pub(crate) struct RtOutputBufferData {
     outputs: [Output; MAX_SOURCES * SPHERE_POINTS]
 }
 
-impl BufferData for RtOutputBufferData {}
+impl InlineBufferData for RtOutputBufferData {}

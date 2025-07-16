@@ -3,7 +3,7 @@ use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::audio_engine::{read_file_words, GpuWindow};
 use crate::util::complex;
 use crate::util::complex::root_of_unity;
-use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer::{BufferOps, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
@@ -72,7 +72,7 @@ impl FftModule {
 
             // Create a UBO per stage
             for stage in &stages {
-                let mut buffer = VulkanBuffer::new(
+                let mut buffer = VulkanBuffer::new_inline(
                     BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::TRANSFER_DST,
                     allocator.clone()
                 );
@@ -96,17 +96,17 @@ impl FftModule {
             buffers
         };
 
-        let fft_buffer_0 = VulkanBuffer::new(
+        let fft_buffer_0 = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
 
-        let fft_buffer_1 = VulkanBuffer::new(
+        let fft_buffer_1 = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
 
-        let debug_buffer = LocalVulkanBuffer::new(
+        let debug_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
@@ -426,10 +426,10 @@ pub(crate) struct FftUboData {
     pub(crate) angle_spin_factor: f32,
     pub(crate) normalization_factor: f32,
 }
-impl BufferData for FftUboData {}
+impl InlineBufferData for FftUboData {}
 
 #[repr(C)]
 pub(crate) struct FftBufferData {
     pub windows: [GpuWindow; MAX_INSTANCES]
 }
-impl BufferData for FftBufferData {}
+impl InlineBufferData for FftBufferData {}

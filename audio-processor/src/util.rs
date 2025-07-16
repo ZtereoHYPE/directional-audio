@@ -114,20 +114,14 @@ pub fn workgroup_div(instances: u32, warp_size: u32) -> u32 {
     ((instances + warp_size - 1) / warp_size)
 }
 
-// Adds an "as_bytes" method to all Sized structs
-pub trait Byteable : Sized {
-    const SIZE: usize = size_of::<Self>();
-
+pub trait AsBytes: Sized {
     unsafe fn as_bytes(&self) -> &[u8] { unsafe {
         slice::from_raw_parts(
             (self as *const Self) as *const u8,
             size_of::<Self>(),
         )
     }}
-
-    unsafe fn as_flipped_bytes(&self) -> Box<[u8]> {
-        self.as_bytes().iter().map(|&b| b).rev().collect::<Vec<_>>().into_boxed_slice()
-    }
 }
 
-impl<T: Sized> Byteable for T {}
+// Automatically implement AsBytes for all Sized structs
+impl<T: Sized> AsBytes for T {}

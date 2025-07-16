@@ -1,8 +1,8 @@
 use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
 use crate::audio_engine::ray_tracer::{RayTracerConstants, RtOutputBufferData};
-use crate::audio_engine::{read_file_words, DynamicBufferData, InstanceBufferData};
-use crate::util::{workgroup_div, Byteable};
-use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use crate::audio_engine::{read_file_words, InstanceBufferData};
+use crate::util::{workgroup_div, AsBytes};
+use crate::vulkan::buffer::{BufferData, BufferOps, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
@@ -45,12 +45,12 @@ impl KMeansModule {
         queue: (Queue, u32),
         constants: RayTracerConstants
     ) -> Self {
-        let neighbours_buffer = VulkanBuffer::new(
+        let neighbours_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
 
-        let mut centroids_buffer = VulkanBuffer::new(
+        let mut centroids_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
@@ -63,16 +63,15 @@ impl KMeansModule {
             &device
         );
 
-        let instance_buffer = VulkanBuffer::new(
+        let instance_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
 
-        let local_instance_buffer = LocalVulkanBuffer::new(
+        let local_instance_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
-
 
         let (closest_descriptor_set, closest_descriptor_set_layout) = unsafe {
             let bindings = [
@@ -451,31 +450,13 @@ pub(super) struct CentroidBufferData {
     centroids: [[Vec3A; CENTROIDS]; MAX_SOURCES],
 }
 
-impl BufferData for CentroidBufferData {}
-
-impl DynamicBufferData for CentroidBufferData {
-    unsafe fn serialize(&self, dst: *mut u8) {
-        std::ptr::copy_nonoverlapping(
-            (self as *const CentroidBufferData).cast(),
-            dst,
-            self.size()
-        );
-    }
-
-    fn size(&self) -> usize {
-        Self::max_size()
-    }
-}
+impl InlineBufferData for CentroidBufferData {}
 
 impl CentroidBufferData {
     pub(crate) fn from_initial() -> Self {
         Self {
             centroids: [KMeansModule::initial_centroids(); MAX_SOURCES]
         }
-    }
-
-    pub(crate) fn max_size() -> usize {
-        size_of::<Self>() // the vec3s are aligned like vec4s
     }
 }
 
@@ -485,7 +466,7 @@ pub(super) struct NeighboursBufferData {
     neighbours: [u32; SPHERE_POINTS * MAX_SOURCES]
 }
 
-impl BufferData for NeighboursBufferData {}
+impl InlineBufferData for NeighboursBufferData {}
 
 impl NeighboursBufferData {
     pub(crate) fn max_size() -> usize {

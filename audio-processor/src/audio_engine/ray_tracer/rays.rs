@@ -1,18 +1,19 @@
 use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
 use crate::audio_engine::ray_tracer::{RayTracerConstants, RtOutputBufferData};
-use crate::audio_engine::{read_file_words, DynamicBufferData};
+use crate::audio_engine::read_file_words;
+use crate::scene::mesh::bvh::BvhBufferData;
+use crate::scene::mesh::TriangleBufferData;
 use crate::scene::source::AudioSource;
 use crate::scene::Scene;
-use crate::util::Byteable;
-use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
-use crate::vulkan::buffer_initializer::BufferInitializer;
-use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use crate::util::AsBytes;
+use crate::vulkan::buffer::{BufferData, BufferOps, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use glam::{Vec3, Vec3A, Vec4};
 use std::array::from_ref;
 use std::rc::Rc;
-use vk_mem::{Alloc, Allocator};
-
+use vk_mem::Allocator;
 
 pub(super) struct RayModule {
     device: Device,
@@ -22,8 +23,8 @@ pub(super) struct RayModule {
     descriptor_set_layout: DescriptorSetLayout,
     pub(super) sources_buffer: VulkanBuffer<SourceBufferData>,
     local_sources_buffer: LocalVulkanBuffer<SourceBufferData>,
-    bvh_buffer: Buffer,
-    triangle_buffer: Buffer,
+    bvh_buffer: VulkanBuffer<BvhBufferData>,
+    triangle_buffer: VulkanBuffer<TriangleBufferData>,
     ray_buffer: VulkanBuffer<RayBufferData>,
     pub(super) local_ray_buffer: LocalVulkanBuffer<RayBufferData>,
     pub(super) output_buffer: VulkanBuffer<RtOutputBufferData>,
@@ -40,67 +41,44 @@ impl RayModule {
         scene: &Scene,
         constants: RayTracerConstants
     ) -> Self {
-        let sources_buffer = VulkanBuffer::new(
+        let sources_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
 
-        let local_sources_buffer = LocalVulkanBuffer::new(
+        let local_sources_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC,
             allocator.clone()
         );
 
-        let ray_buffer = VulkanBuffer::new(
+        let ray_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
 
-        let local_ray_buffer = LocalVulkanBuffer::new(
+        let local_ray_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST,
             allocator.clone()
         );
+        
+        let mut bvh_buffer = VulkanBuffer::new_dynamic(
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            scene.mesh.bvh.clone(),
+            allocator.clone()
+        );
 
-        // these buffers can't use the nice wrapper, as their size and contents are determined at runtime :/
-        let (mut bvh_buffer, bvh_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(scene.mesh.bvh.size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
-
-        let (mut triangle_buffer, triangle_buffer_mem) = unsafe {
-            let buffer_info = BufferCreateInfo::default()
-                .size(scene.mesh.triangles.size() as u64)
-                .usage(BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER)
-                .queue_family_indices(from_ref(&queue.1))
-                .sharing_mode(SharingMode::EXCLUSIVE);
-
-            let allocation_info = vk_mem::AllocationCreateInfo {
-                usage: vk_mem::MemoryUsage::AutoPreferDevice,
-                ..Default::default()
-            };
-
-            allocator
-                .create_buffer(&buffer_info, &allocation_info)
-                .expect("Failed to create buffer")
-        };
+        let mut triangle_buffer = VulkanBuffer::new_dynamic(
+            BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            scene.mesh.triangles.clone(),
+            allocator.clone()
+        );
 
         unsafe {
-            initializer.init_dynamic_buffer(&device, queue.0, scene.mesh.bvh.clone(), &mut bvh_buffer);
-            initializer.init_dynamic_buffer(&device, queue.0, scene.mesh.triangles.clone(), &mut triangle_buffer);
+            initializer.init_buffer(&mut bvh_buffer, InitMode::Populated(Box::new(scene.mesh.bvh.clone())), queue, &device);
+            initializer.init_buffer(&mut triangle_buffer, InitMode::Populated(Box::new(scene.mesh.triangles.clone())), queue, &device);
         }
         
-        let output_buffer = VulkanBuffer::new(
+        let output_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
@@ -155,10 +133,10 @@ impl RayModule {
                     .buffer(sources_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(bvh_buffer)
+                    .buffer(bvh_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
-                    .buffer(triangle_buffer)
+                    .buffer(triangle_buffer.handle())
                     .range(WHOLE_SIZE),
                 DescriptorBufferInfo::default()
                     .buffer(output_buffer.handle())
@@ -374,7 +352,7 @@ pub struct RayBufferData {
     pub rays: [Vec4; SPHERE_POINTS * 4 * MAX_SOURCES]
 }
 
-impl BufferData for RayBufferData {}
+impl InlineBufferData for RayBufferData {}
 
 
 pub(super) struct SourceBufferData {
@@ -389,4 +367,4 @@ impl SourceBufferData {
     }
 }
 
-impl BufferData for SourceBufferData {}
+impl InlineBufferData for SourceBufferData {}
