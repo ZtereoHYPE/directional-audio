@@ -10,7 +10,7 @@ crate-type = ["cdylib"]  # Compile this crate to a dynamic C library.
 godot = { path = "../../gdext-master/godot"}
 audio-processor = { path = "../../audio-processor"}
 hound = "3.5.1"
-crevice = "0.18.0" 
+glam = "0.30.4"
 
 [profile.dev]
-opt-level = 0
+opt-level = 2

@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://bs72ogkvdd7d6"]
-
-[ext_resource type="Script" uid="uid://b8n4t5ovhdibx" path="res://addons/proto_controller/proto_controller.gd" id="1_ucva2"]
-
-[node name="ProtoController" type="CharacterBody3D"]
-script = ExtResource("1_ucva2")

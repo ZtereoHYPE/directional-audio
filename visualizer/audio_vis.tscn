@@ -352,6 +352,7 @@ mesh = ExtResource("8_dhqrm")
 
 [node name="AudioListenerNode" type="AudioListenerNode" parent="3D Scene/Player/Head"]
 hrtf_filter = "res://assets/audio/HRIR_FULL2DEG.sofa"
+export_audio = true
 
 [node name="Orbiting Camera" type="Node3D" parent="3D Scene"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.46017, 3.66763, 11.192)
@@ -360,6 +361,7 @@ script = ExtResource("6_viom0")
 [node name="OrbitCamera" type="Camera3D" parent="3D Scene/Orbiting Camera"]
 script = ExtResource("6_lx530")
 SCROLL_SPEED = 300.0
+DEFAULT_DISTANCE = 50.0
 ROTATE_SPEED = 1.0
 ANCHOR_NODE_PATH = NodePath("..")
 metadata/_custom_type_script = "uid://bogt0ewoml0pc"

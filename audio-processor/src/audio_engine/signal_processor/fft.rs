@@ -52,6 +52,7 @@ pub(crate) struct FftModule {
     descriptor_set_layout: DescriptorSetLayout,
     buffers: [VulkanBuffer<FftBufferData>; 2],
     fft_ubos: Vec<VulkanBuffer<FftUboData>>,
+    pub debug_buffer: LocalVulkanBuffer<FftBufferData>,
     queue: Queue,
     stages: Vec<FftStage>,
 }
@@ -101,6 +102,11 @@ impl FftModule {
         );
 
         let fft_buffer_1 = VulkanBuffer::new(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
+
+        let debug_buffer = LocalVulkanBuffer::new(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
         );
@@ -266,6 +272,7 @@ impl FftModule {
             descriptor_set_layout,
             buffers: [fft_buffer_0, fft_buffer_1],
             fft_ubos,
+            debug_buffer,
             queue: queue.0,
             stages,
         }
@@ -309,6 +316,15 @@ impl FftModule {
                 &[]
             );
         }
+
+        // todo: only if debug enabled, this is quite expensive!
+        // todo: not hardcoded to the specific buffer!
+        self.device.cmd_copy_buffer(
+            *command_buffer,
+            self.buffers[0].handle(),
+            self.debug_buffer.handle(),
+            FftBufferData::region()
+        );
 
         (self.stages.len() % 2) as u32 // this is the index of the buffer where the result will be
     }

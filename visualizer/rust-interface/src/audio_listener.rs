@@ -125,7 +125,7 @@ impl INode3D for AudioListenerNode {
             self.last_position = position;
             self.last_rotation = rotation;
 
-            engine.update_listener(to_vec(position), rotation_matrix(rotation.x, rotation.y));
+            engine.update_listener(to_vec(position).into(), rotation_matrix(rotation.x, rotation.y));
         }
 
         engine.request_debug(); // for now, only request debug once per tick. Later do once per frame.

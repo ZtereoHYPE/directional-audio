@@ -6,6 +6,8 @@ use godot::prelude::GodotClass;
 #[class(init)]
 pub struct GodotVisualizationData {
     #[var]
+    ray_origin: Vector3,
+    #[var]
     rays: PackedVector4Array,
     #[var]
     instances: PackedVector3Array // for now they're just coordinates, might get upgraded later
@@ -20,6 +22,7 @@ impl GodotVisualizationData {
             .map(|i| Vector3::new(i.direction.x, i.direction.y, i.direction.z))
             .collect();
 
+        self.ray_origin = Vector3::new(data.rt.origin.x, data.rt.origin.y, data.rt.origin.z);
         self.rays = PackedVector4Array::from(ray_hits);
         self.instances = PackedVector3Array::from(instance_locations);
     }

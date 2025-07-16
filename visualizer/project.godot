@@ -15,6 +15,10 @@ run/main_scene="res://audio_vis.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://assets/icon.svg"
 
+[debug]
+
+gdscript/warnings/untyped_declaration=1
+
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/orbit_camera/plugin.cfg")

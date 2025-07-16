@@ -58,7 +58,7 @@ impl AudioMeshNode {
                 let mut mesh_tris = (0..indices.len())
                     .map(|idx| indices.get(idx).unwrap() as usize)
                     .map(|indice| vertices.get(indice).unwrap())
-                    .map(|vertex| to_vec(vertex + offset))
+                    .map(|vertex| to_vec(vertex + offset).into())
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
@@ -71,7 +71,7 @@ impl AudioMeshNode {
 
                 let mut mesh_tris = (0..vertices.len())
                     .map(|idx| vertices.get(idx).unwrap())
-                    .map(|vertex| to_vec(vertex + offset))
+                    .map(|vertex| to_vec(vertex + offset).into())
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
