@@ -22,7 +22,7 @@ impl DebugRayModule {
     pub(super) fn new(
         device: Device,
         descriptor_pool: DescriptorPool,
-        sources_buffer: &VulkanBuffer<RtOutputBufferData>,
+        sources_buffer: &VulkanBuffer<SourceBufferData>, // this is NOT the right buffer man
         instance_buffer: &VulkanBuffer<InstanceBufferData>,
         queue: Queue
     ) -> Self {

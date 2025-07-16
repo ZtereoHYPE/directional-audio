@@ -19,7 +19,7 @@ layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 //////////////////////////////////////////
 
 struct Triangle {
-    vec3 vertices[3]; // todo: compact?
+    vec3 vertices[3];
 };
 
 struct HitRecord {
@@ -81,7 +81,7 @@ layout(std430, binding = 3) writeonly buffer OutputBuffer {
     Output outputs[];
 };
 
-layout(std430, binding = 3) writeonly buffer RayBuffer {
+layout(std430, binding = 4) writeonly buffer RayBuffer {
     vec4 rays[];
 };
 
@@ -125,7 +125,7 @@ HitRecord hit_triangle(Ray ray, Triangle triangle) {
 
     // Find t using cramer's rule, and make sure the intersection happens in front of the camera
     float t = dot(q, ac) * inv_det;
-    if (t < EPSILON) return hit;
+    if (!(t > EPSILON)) return hit;
 
     // Find the barycentric coordinates
     float u = dot(p, o) * inv_det;
@@ -136,7 +136,7 @@ HitRecord hit_triangle(Ray ray, Triangle triangle) {
     vec3 coords = vec3(u, v, w);
     if (any(lessThan(coords, vec3(0))) || any(greaterThan(coords, vec3(1)))) return hit;
 
-    hit.did_hit = t > EPSILON;
+    hit.did_hit = true;
     hit.t = t;
     hit.pos = ray_at(ray, t);
     hit.normal = plane_normal;
@@ -215,9 +215,9 @@ HitRecord hit_meshes(Ray ray) {
     return hit;
 }
 
-void store_ray(uint point_idx, uint source_idx, uint bounce, vec3 coords) {
+void store_ray(uint point_idx, uint source_idx, uint bounce, vec3 coords, int type) {
     if (camera.store_rays)
-        rays[source_idx * POINT_AMOUNT * MAX_BOUNCES + point_idx * MAX_BOUNCES + bounce] = vec4(coords, 1);
+        rays[source_idx * POINT_AMOUNT * MAX_BOUNCES + point_idx * MAX_BOUNCES + bounce] = vec4(coords, type);
 }
 
 void main() {
@@ -232,58 +232,60 @@ void main() {
 
     Ray main_ray = generate_ray();
 
-    Output output_; // _ because it's a reserved keyword
-    output_.location = source - main_ray.origin;
-    output_.total_distance = length(source - main_ray.origin);
-    output_.bounces = 0;
-    output_.source = source_idx;
-    output_.found_source = false;
+    //    Output output_; // _ because it's a reserved keyword
+//    output_.location = source - main_ray.origin;
+//    output_.total_distance = length(source - main_ray.origin);
+//    output_.bounces = 0;
+//    output_.source = source_idx;
+//    output_.found_source = false;
 
-    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
-        store_ray(point_idx, source_idx, bounce, vec3(1, 0.5, 0.25));
-
-        // Check if the source is visible
-        vec3 src_direction = source - main_ray.origin;
-        Ray shadow_ray;
-        shadow_ray.origin = main_ray.origin;
-        shadow_ray.direction = normalize(src_direction);
-        HitRecord shadow_hit = hit_meshes(shadow_ray);
-
-        // If we can reach the source, we're done!
-        if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
-            output_.found_source = true;
-            output_.total_distance += length(src_direction);
-            store_ray(point_idx, source_idx, bounce, source);
-            break;
-
-        // Else, if we're at the last bounce we can stop now
-        } else if (bounce == MAX_BOUNCES - 1) {
-            break;
-        }
+//    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
+//        // Check if the source is visible
+//        vec3 src_direction = source - main_ray.origin;
+//        Ray shadow_ray;
+//        shadow_ray.origin = main_ray.origin;
+//        shadow_ray.direction = normalize(src_direction);
+//        HitRecord shadow_hit = hit_meshes(shadow_ray);
+//
+//        // If we can reach the source, we're done!
+//        if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
+//            output_.found_source = true;
+//            output_.total_distance += length(src_direction);
+//            store_ray(point_idx, source_idx, bounce, source, 2);
+//            break;
+//
+//        // Else, if we're at the last bounce we can stop now
+//        } else if (bounce == MAX_BOUNCES - 1) {
+//            break;
+//        }
 
         // Advance the ray
         HitRecord mesh_hit = hit_meshes(main_ray);
-        if (!mesh_hit.did_hit)
-            break;
-
-        store_ray(point_idx, source_idx, bounce, mesh_hit.pos);
-
-        // If it's the first bounce, make sure to update the location to include the distance.
-        if (bounce == 0) {
-            output_.location = main_ray.direction * mesh_hit.t;
+        if (!mesh_hit.did_hit) {
+            store_ray(point_idx, source_idx, 0, mesh_hit.pos, 0);
+            //            break;
+            return;
         }
 
-        // Increment the output's values
-        output_.total_distance += length(main_ray.origin - mesh_hit.pos);
-        output_.bounces++;
+        store_ray(point_idx, source_idx, 0, mesh_hit.pos, 1);
+//        store_ray(point_idx, source_idx, bounce, mesh_hit.pos, 1);
 
-        // Else, keep bouncing (using perfect reflections)
-        main_ray.origin = mesh_hit.pos;
-        main_ray.direction = reflect(main_ray.direction, mesh_hit.normal);
-    }
-
-    // store the result
-    outputs[source_idx * POINT_AMOUNT + point_idx] = output_;
+        // If it's the first bounce, make sure to update the location to include the distance.
+//        if (bounce == 0) {
+//            output_.location = main_ray.direction * mesh_hit.t;
+//        }
+//
+//        // Increment the output's values
+//        output_.total_distance += length(main_ray.origin - mesh_hit.pos);
+//        output_.bounces++;
+//
+//        // Else, keep bouncing (using perfect reflections)
+//        main_ray.origin = mesh_hit.pos;
+//        main_ray.direction = reflect(main_ray.direction, mesh_hit.normal);
+//    }
+//
+//    // store the result
+//    outputs[source_idx * POINT_AMOUNT + point_idx] = output_;
 }
 
 //void main_optimized() {
