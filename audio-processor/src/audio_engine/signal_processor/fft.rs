@@ -1,11 +1,11 @@
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::audio_engine::{read_file_words, GpuWindow};
-use crate::util::complex;
+use crate::util::{complex, AsBytes};
 use crate::util::complex::root_of_unity;
 use crate::vulkan::buffer::{BufferOps, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
-use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use glam::Vec2;
 use std::array::from_ref;
@@ -40,18 +40,23 @@ struct FftConstants {
     radix: u32
 }
 
-impl FftConstants {
-    const SIZE: usize = size_of::<Self>();
+#[repr(C)]
+struct FftPushConstants {
+    input_buffer: u32,
+    output_buffer: u32,
+    split_size: u32,
+    angle_direction_factor: f32,
+    angle_spin_factor: f32,
+    normalization_factor: f32,
 }
 
 pub(crate) struct FftModule {
     device: Device,
-    pipelines: [Pipeline; RADIX_AMT], // todo: potentially move away from fixed-size arrays?
+    pipelines: [Pipeline; RADIX_AMT],
     pipeline_layout: PipelineLayout,
-    descriptor_sets: Vec<DescriptorSet>,
+    descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
     buffers: [VulkanBuffer<FftBufferData>; 2],
-    fft_ubos: Vec<VulkanBuffer<FftUboData>>,
     pub debug_buffer: LocalVulkanBuffer<FftBufferData>,
     queue: Queue,
     stages: Vec<FftStage>,
@@ -67,35 +72,6 @@ impl FftModule {
         stages: Vec<FftStage>,
         constants: SignalProcessorConstants
     ) -> Self {
-        let fft_ubos = unsafe {
-            let mut buffers = vec![];
-
-            // Create a UBO per stage
-            for stage in &stages {
-                let mut buffer = VulkanBuffer::new_inline(
-                    BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::TRANSFER_DST,
-                    allocator.clone()
-                );
-
-                // Populate the UBO
-                let inverse = false;
-                let direction: f32 = if !inverse { -1.0 } else { 1.0 };
-                let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32};
-                let data = Box::new(FftUboData {
-                    split_size: stage.split_size,
-                    radix_stride: stage.stride,
-                    angle_direction_factor: direction,
-                    angle_spin_factor: direction * (PI / (stage.split_size as f32)),
-                    normalization_factor: normalization,
-                });
-
-                initializer.init_buffer(&mut buffer, InitMode::Populated(data), queue, &device);
-                buffers.push(buffer);
-            }
-
-            buffers
-        };
-
         let fft_buffer_0 = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
@@ -111,58 +87,33 @@ impl FftModule {
             allocator.clone()
         );
 
-        let (descriptor_sets, descriptor_set_layout) = unsafe {
+        let (descriptor_set, descriptor_set_layout) = unsafe {
             // Create layout, which is the same across every stage
             let bindings = [
                 DescriptorSetLayoutBinding::default()
                     .binding(0)
-                    .descriptor_count(1)
-                    .descriptor_type(DescriptorType::UNIFORM_BUFFER)
-                    .stage_flags(ShaderStageFlags::COMPUTE),
-
-                DescriptorSetLayoutBinding::default()
-                    .binding(1)
-                    .descriptor_count(1)
+                    .descriptor_count(2)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .stage_flags(ShaderStageFlags::COMPUTE),
-
-                DescriptorSetLayoutBinding::default()
-                    .binding(2)
-                    .descriptor_count(1)
-                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
-                    .stage_flags(ShaderStageFlags::COMPUTE)
             ];
 
             let set_layout_info = DescriptorSetLayoutCreateInfo::default()
                 .bindings(&bindings);
 
-            let set_layouts = vec![
-                device
-                    .create_descriptor_set_layout(&set_layout_info, None)
-                    .expect("Failed to create descriptor set layout")
-                ; stages.len()
-            ];
+            let set_layout = device
+                .create_descriptor_set_layout(&set_layout_info, None)
+                .expect("Failed to create descriptor set layout");
 
             // Allocate one set per stage
             let set_info = DescriptorSetAllocateInfo::default()
                 .descriptor_pool(descriptor_pool)
-                .set_layouts(&set_layouts[..]);
+                .set_layouts(from_ref(&set_layout));
 
-            let sets = device
+            let set = device
                 .allocate_descriptor_sets(&set_info)
-                .expect("Failed to allocate descriptor sets");
+                .expect("Failed to allocate descriptor sets")[0];
 
-            // Create buffer information
-            let ubo_infos = fft_ubos
-                .iter()
-                .map(|ubo| {
-                    DescriptorBufferInfo::default()
-                        .buffer(ubo.handle())
-                        .range(WHOLE_SIZE)
-                })
-                .collect::<Vec<_>>();
-
-            let ssbo_infos = (
+            let ssbo_infos = [
                 DescriptorBufferInfo::default()
                     .buffer(fft_buffer_0.handle())
                     .range(WHOLE_SIZE),
@@ -170,43 +121,29 @@ impl FftModule {
                 DescriptorBufferInfo::default()
                     .buffer(fft_buffer_1.handle())
                     .range(WHOLE_SIZE),
-            );
+            ];
 
-            // Write the descriptor sets
-            let mut writes = vec![];
-            for (idx, set) in sets.iter().enumerate() {
-                writes.extend_from_slice(&[
-                    WriteDescriptorSet::default()
-                        .dst_set(*set)
-                        .descriptor_count(1)
-                        .dst_binding(0)
-                        .descriptor_type(DescriptorType::UNIFORM_BUFFER)
-                        .buffer_info(from_ref(&ubo_infos[idx])),
+            // Write the descriptor set
+            let mut write = WriteDescriptorSet::default()
+                .dst_set(set)
+                .descriptor_count(2)
+                .dst_binding(0)
+                .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&ssbo_infos[..]);
 
-                    WriteDescriptorSet::default()
-                        .dst_set(*set)
-                        .descriptor_count(1)
-                        .dst_binding(1 + (idx % 2) as u32) // 1, 2, 1, ...
-                        .descriptor_type(DescriptorType::STORAGE_BUFFER)
-                        .buffer_info(from_ref(&ssbo_infos.0)),
-
-                    WriteDescriptorSet::default()
-                        .dst_set(*set)
-                        .descriptor_count(1)
-                        .dst_binding(1 + ((idx + 1) % 2) as u32) // 2, 1, 2, ...
-                        .descriptor_type(DescriptorType::STORAGE_BUFFER)
-                        .buffer_info(from_ref(&ssbo_infos.1))
-                ]);
-            }
-
-            device.update_descriptor_sets(&writes[..], &[]);
-            (sets, set_layouts[0])
+            device.update_descriptor_sets(from_ref(&write), &[]);
+            (set, set_layout)
         };
 
         let (pipelines, pipeline_layout) = unsafe {
+            let push_constant_range = PushConstantRange::default()
+                .stage_flags(ShaderStageFlags::COMPUTE)
+                .size(size_of::<FftPushConstants>() as _);
+
             // The layout is the same for all pipelines
             let layout_info = PipelineLayoutCreateInfo::default()
-                .set_layouts(from_ref(&descriptor_set_layout));
+                .set_layouts(from_ref(&descriptor_set_layout))
+                .push_constant_ranges(from_ref(&push_constant_range));
 
             let layout = device
                 .create_pipeline_layout(&layout_info, None)
@@ -235,7 +172,7 @@ impl FftModule {
                 .map(|datum| {
                     SpecializationInfo::default()
                         .map_entries(&specialization_entries)
-                        .data(transmute::<_, &[u8; FftConstants::SIZE]>(datum))
+                        .data(transmute::<_, &[u8; size_of::<FftConstants>()]>(datum))
                 })
                 .collect::<Vec<_>>()
                 .try_into().unwrap();
@@ -268,10 +205,9 @@ impl FftModule {
             device,
             pipelines,
             pipeline_layout,
-            descriptor_sets,
+            descriptor_set,
             descriptor_set_layout,
             buffers: [fft_buffer_0, fft_buffer_1],
-            fft_ubos,
             debug_buffer,
             queue: queue.0,
             stages,
@@ -279,18 +215,37 @@ impl FftModule {
     }
 
     pub unsafe fn gpu_fourier_transform(&mut self, command_buffer: &mut CommandBuffer, initial_buffer: u32, inverse: bool, instance_amt: usize) -> u32 {
+        self.device.cmd_bind_descriptor_sets(
+            *command_buffer,
+            PipelineBindPoint::COMPUTE,
+            self.pipeline_layout,
+            0,
+            from_ref(&self.descriptor_set),
+            &[]
+        );
+
         for (idx, stage) in self.stages.iter().enumerate() {
             let workgroups = (GPU_WINDOW_SIZE as u32 / (stage.radix * 32), instance_amt as u32);
 
-            // todo: Push constants to select the right buffer! -> change the shader as well
-            self.device.cmd_bind_descriptor_sets(
+            let direction: f32 = if !inverse { -1.0 } else { 1.0 };
+            let normalization: f32 = if !inverse { 1.0 } else { 1.0 / stage.radix as f32};
+            let push_constants = FftPushConstants {
+                input_buffer: (idx % 2) as u32,
+                output_buffer: ((idx + 1) % 2) as u32,
+                split_size: stage.split_size,
+                angle_direction_factor: direction,
+                angle_spin_factor: direction * (PI / (stage.split_size as f32)),
+                normalization_factor: normalization,
+            };
+
+            self.device.cmd_push_constants(
                 *command_buffer,
-                PipelineBindPoint::COMPUTE,
                 self.pipeline_layout,
+                ShaderStageFlags::COMPUTE,
                 0,
-                from_ref(&self.descriptor_sets[idx]),
-                &[]
+                push_constants.as_bytes()
             );
+
             self.device.cmd_bind_pipeline(
                 *command_buffer,
                 PipelineBindPoint::COMPUTE,
@@ -311,7 +266,7 @@ impl FftModule {
                 PipelineStageFlags::COMPUTE_SHADER, // wait for all compute dispatches so far...
                 PipelineStageFlags::COMPUTE_SHADER, // ...before executing any compute dispatches from now on
                 DependencyFlags::empty(),
-                from_ref(&memory_barrier),
+                from_ref(&memory_barrier), // todo: use individual buffer barriers (based on stage) and measure!
                 &[],
                 &[]
             );
@@ -417,16 +372,6 @@ impl FftModule {
         buffer
     }
 }
-
-#[repr(C)]
-pub(crate) struct FftUboData {
-    pub(crate) split_size: u32,
-    pub(crate) radix_stride: u32,
-    pub(crate) angle_direction_factor: f32,
-    pub(crate) angle_spin_factor: f32,
-    pub(crate) normalization_factor: f32,
-}
-impl InlineBufferData for FftUboData {}
 
 #[repr(C)]
 pub(crate) struct FftBufferData {

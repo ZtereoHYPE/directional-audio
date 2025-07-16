@@ -28,30 +28,24 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-
 layout(constant_id = 0) const uint WINDOW_SIZE = 1024;
 layout(constant_id = 8) const uint RADIX = 8;
 
 const int MAX_RADIX = 8;
 const uint RADIX_STRIDE = WINDOW_SIZE / RADIX;
 
-
-layout(binding = 0) uniform UBO {
+layout(push_constant, std430) uniform StageInfo {
+    uint inputBuffer;
+    uint outputBuffer;
     uint splitSize;
-    uint radixStride; // todo: remove this as it's replaced by the const
     float directionFactor;
     float angleFactor;
     float normalizationFactor;
-} ubo;
+} stage;
 
-layout(binding = 1, std430) readonly restrict buffer DataIn {
+layout(binding = 0, std430) restrict buffer DataBuffers {
     vec2 values[];
-} dataIn;
-
-layout(binding = 2, std430) writeonly restrict buffer DataOut {
-    vec2 values[];
-} dataOut;
-
+} data[2]; // todo: measure performance loss of no readonly/writeonly modifiers
 
 void swapComplexNumbers(inout vec2 a, inout vec2 b) {
     vec2 aux = b;
@@ -64,7 +58,7 @@ vec2 multComplexNumbers(vec2 a, vec2 b) {
 }
 
 vec2 perpendicularComplexNumber(vec2 w) {
-    return vec2(-w.y, w.x) * ubo.directionFactor;
+    return vec2(-w.y, w.x) * stage.directionFactor;
 }
 
 vec2 angleBisectComplexNumber(vec2 w) {
@@ -106,7 +100,7 @@ void fft8(inout vec2 values[MAX_RADIX], vec2 w) {
     butterfly(values[5], values[7], w1);
     vec2 W0 = angleBisectComplexNumber(w0);
     vec2 W1 = perpendicularComplexNumber(W0);
-    vec2 W2 = multComplexNumbers(W0, vec2(M_SQRT1_2, M_SQRT1_2 * ubo.directionFactor));
+    vec2 W2 = multComplexNumbers(W0, vec2(M_SQRT1_2, M_SQRT1_2 * stage.directionFactor));
     vec2 W3 = perpendicularComplexNumber(W2);
     butterfly(values[0], values[1], W0);
     butterfly(values[2], values[3], W1);
@@ -119,15 +113,15 @@ void fft8(inout vec2 values[MAX_RADIX], vec2 w) {
 // todo: 16-pass fft later
 
 void main() {
-    uint invocationInBlock = gl_GlobalInvocationID.x & (ubo.splitSize - 1u);
+    uint invocationInBlock = gl_GlobalInvocationID.x & (stage.splitSize - 1u);
     uint invocationBlockBegin = gl_GlobalInvocationID.x - invocationInBlock;
     uint outputIndex = invocationInBlock + invocationBlockBegin * RADIX;
-    float angle = float(invocationInBlock) * ubo.angleFactor;
+    float angle = float(invocationInBlock) * stage.angleFactor;
     vec2 twiddleFactor = vec2(cos(angle), sin(angle));
 
     vec2 values[MAX_RADIX];
     for (uint i = 0; i < RADIX; ++i)
-        values[i] = dataIn.values[gl_GlobalInvocationID.x + i * RADIX_STRIDE + WINDOW_SIZE * gl_GlobalInvocationID.y];
+        values[i] = data[stage.inputBuffer].values[gl_GlobalInvocationID.x + i * RADIX_STRIDE + WINDOW_SIZE * gl_GlobalInvocationID.y];
 
     // branch eliminated by specialization constants (hopefully)
     if (RADIX == 2) {
@@ -139,5 +133,5 @@ void main() {
     }
 
     for (uint i = 0; i < RADIX; ++i)
-        dataOut.values[outputIndex + i * ubo.splitSize + WINDOW_SIZE * gl_GlobalInvocationID.y] = values[i] * ubo.normalizationFactor;
+        data[stage.outputBuffer].values[outputIndex + i * stage.splitSize + WINDOW_SIZE * gl_GlobalInvocationID.y] = values[i] * stage.normalizationFactor;
 }
