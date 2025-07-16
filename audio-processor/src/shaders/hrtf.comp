@@ -93,15 +93,11 @@ void main() {
     // - frames access (better continuous in invocation, or split throughout warp?)
     // - caching?
     
-    // todo: experiment with summing local memory first and then only writing here if you the last thread; it should be MUCH fastr.
-    //  basically, all the threads must write their output to local memory and then barrier. after the barrier, one thread can do the sum and write it
-    //  and the rest can just "terminate"; or use subgroupAdd() (subgroups should be vertical slices in that case)
-
     uint sample_idx = gl_GlobalInvocationID.x;
     uint instance_idx = gl_GlobalInvocationID.y;
-    
+
     if (instance_idx >= instance_amount) return;
-    
+
     Instance instance = instances[instance_idx];
     float dist = length(instance.direction);
     uint fft_offset = instance_idx * WINDOW_SIZE;

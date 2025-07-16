@@ -1,11 +1,10 @@
+use crate::audio_engine::gpu_constants::GPU_WINDOW_SIZE;
+use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::DynamicBufferData;
-use crevice::std430::{Vec2, Vec3};
-use crevice::std430::Vec4;
+use crate::util::{complex, vec3};
+use glam::{vec2, Vec2, Vec3, Vec4};
 use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
-use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
-use crate::audio_engine::signal_processor::fft::FftModule;
-use crate::util::{complex, vec3};
 
 #[derive(Clone)]
 pub struct HrtfOptions {
@@ -115,10 +114,10 @@ impl DynamicBufferData for HrtfFilterChannel {
 fn transform_filter(filter: &Box<[f32]>, pad_length: usize) -> Vec<Vec4> {
     assert!(pad_length > filter.len(), "Padded length must be equal or larger than the filter's length!");
 
-    let mut vec: Vec<Vec2> = filter.iter().map(|tap| Vec2 {x: *tap, y: 0.0}).collect();
+    let mut vec: Vec<Vec2> = filter.iter().map(|tap| vec2(*tap, 0.0)).collect();
 
     while vec.len() < pad_length {
-        vec.push(Vec2 {x: 0.0, y: 0.0});
+        vec.push(Vec2::ZERO);
     }
 
     let fourier = FftModule::local_fourier_transform(vec, false);

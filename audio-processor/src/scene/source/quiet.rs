@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_structures::GpuFrame;
+use crate::audio_engine::GpuFrame;
 use crate::scene::source::AudioProvider;
 
 pub struct SilentAudioProvider;

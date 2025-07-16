@@ -1,12 +1,9 @@
-use crevice::internal::bytemuck::Zeroable;
-use crevice::std430::Mat3;
+use crate::scene::listener::hrtf_filter::HrtfFilter;
 use crate::scene::listener::AudioListener;
 use crate::scene::mesh::{SceneMesh, Triangle};
 use crate::scene::source::AudioSource;
-use crate::util::{complex, vec3};
-use crevice::std430::Vec3;
-use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
-use crate::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
+use bytemuck::Zeroable;
+use glam::{Mat3, Vec3};
 
 pub mod source;
 pub mod listener;

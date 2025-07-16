@@ -1,17 +1,17 @@
-use crate::audio_engine::gpu_structures::{DownloadBufferData, FftBufferData, GpuWindow, InstanceBufferData, GPU_WINDOW_SIZE, MAX_INSTANCES};
-use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
-use ash::Device;
-use std::array::from_ref;
-use std::mem::transmute;
-use std::rc::Rc;
-use crevice::std430::Std430;
-use vk_mem::{Alloc, Allocator};
-use crate::audio_engine::read_file_words;
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
+use crate::audio_engine::signal_processor::fft::FftBufferData;
+use crate::audio_engine::signal_processor::transfer::DownloadBufferData;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
+use crate::audio_engine::{read_file_words, GpuWindow, InstanceBufferData};
 use crate::scene::listener::hrtf_filter::HrtfFilter;
-use crate::util::workgroup_div;
+use crate::util::{workgroup_div, Byteable};
 use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::Device;
+use std::array::from_ref;
+use std::rc::Rc;
+use vk_mem::{Alloc, Allocator};
 
 pub struct HrtfModule {
     device: Device,

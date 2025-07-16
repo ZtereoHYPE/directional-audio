@@ -1,7 +1,5 @@
-use crate::audio_engine::gpu_structures::GPU_WINDOW_SIZE;
-use crate::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
-use crevice::std430::{Mat3, Vec2, Vec3};
-use std::f32::consts::PI;
+use crate::scene::listener::hrtf_filter::HrtfFilter;
+use glam::{Mat3, Vec3};
 
 pub mod hrtf_filter;
 

@@ -1,11 +1,11 @@
-use crate::audio_engine::read_file_words;
-use ash::vk::{AccessFlags, Buffer, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
-use ash::Device;
-use crevice::std430::{Mat3, Std430, Vec3};
-use std::array::from_ref;
-use crate::audio_engine::gpu_structures::{InstanceBufferData, RtOutputBufferData};
-use crate::util::workgroup_div;
+use crate::audio_engine::ray_tracer::rays::SourceBufferData;
+use crate::audio_engine::{read_file_words, InstanceBufferData};
+use crate::util::{workgroup_div, Byteable};
 use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
+use ash::vk::{AccessFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
+use ash::Device;
+use glam::{Mat3, Mat3A, Vec3, Vec3A};
+use std::array::from_ref;
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
 
@@ -154,7 +154,7 @@ impl DebugRayModule {
             self.pipeline_layout,
             ShaderStageFlags::COMPUTE,
             0,
-            origin.as_bytes()
+            Vec3A::from(origin).as_bytes()
         );
 
         self.device.cmd_push_constants(
@@ -162,7 +162,7 @@ impl DebugRayModule {
             self.pipeline_layout,
             ShaderStageFlags::COMPUTE,
             16,
-            rotation.as_bytes()
+            Mat3A::from(rotation).as_bytes()
         );
 
         self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);

@@ -1,24 +1,22 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use crate::audio_engine::gpu_structures::{AudioInstance, InstanceBufferData, RtOutputBufferData, MAX_INSTANCES, MAX_SOURCES};
-use crate::audio_engine::ray_tracer::kmeans::{CentroidBufferData, KMeansModule, NeighboursBufferData};
-use crate::audio_engine::ray_tracer::rays::{RayBufferData, RayModule, SPHERE_POINTS};
-use crate::audio_engine::DynamicBufferData;
+use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
+use crate::audio_engine::ray_tracer::debug::DebugRayModule;
+use crate::audio_engine::ray_tracer::kmeans::KMeansModule;
+use crate::audio_engine::ray_tracer::rays::{RayBufferData, RayModule};
+use crate::audio_engine::{DynamicBufferData, InstanceBufferData};
+use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
 use crate::scene::Scene;
-use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceSize, Fence, FenceCreateInfo, PhysicalDevice, Queue, SharingMode, SpecializationMapEntry, SubmitInfo, WHOLE_SIZE};
+use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
+use crate::vulkan::buffer_initializer::BufferInitializer;
+use ash::prelude::VkResult;
+use ash::vk::{CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, Fence, FenceCreateInfo, PhysicalDevice, Queue, SpecializationMapEntry, SubmitInfo};
 use ash::{Device, Instance};
-use crevice::std430::{Mat3, Vec3, Vec4};
+use glam::{Mat3, Vec3};
 use std::array::from_ref;
 use std::mem::transmute;
 use std::rc::Rc;
-use ash::prelude::VkResult;
-use vk_mem::{Alloc, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
-use crate::audio_engine::ray_tracer::debug::DebugRayModule;
-use crate::audio_engine::signal_processor::transfer::copy_to_box;
-use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
-use crate::util::vec3;
-use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
-use crate::vulkan::buffer_initializer::BufferInitializer;
+use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
@@ -55,6 +53,7 @@ impl RayTracerConstants {
 }
 
 pub struct RtDebugData {
+    pub origin: Vec3,
     pub rays: Box<RayBufferData>,
     pub instances: Box<InstanceBufferData>
 }
@@ -173,7 +172,7 @@ impl RayTracer {
         let debug_module = DebugRayModule::new(
             device.clone(),
             descriptor_pool,
-            &ray_module.output_buffer,
+            &ray_module.sources_buffer,
             &cluster_module.instance_buffer,
             async_queue.0
         );
@@ -260,6 +259,7 @@ impl RayTracer {
         self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
 
         Ok(RtDebugData {
+            origin: self.last_rt_pos,
             rays: self.ray_module.local_ray_buffer.buffer_data().to_local_copy(),
             instances: self.cluster_module.local_instance_buffer.buffer_data().to_local_copy()
         })
@@ -320,3 +320,18 @@ impl RayTracer {
         self.last_rt_pos
     }
 }
+
+/// Ray Tracing output buffer
+#[repr(align(16))]
+pub(crate) struct Output {
+    direction: Vec3,
+    total_distance: f32,
+    bounces: u32,
+    source: u32,
+}
+
+pub(crate) struct RtOutputBufferData {
+    outputs: [Output; MAX_SOURCES * SPHERE_POINTS]
+}
+
+impl BufferData for RtOutputBufferData {}

@@ -6,26 +6,24 @@ mod hrtf;
 pub mod transfer;
 mod delay;
 
-use crate::audio_engine::gpu_structures::{DelayBufferData, DownloadBufferData, FftBufferData, FftUboData, GpuFrame, GpuWindow, InstanceBufferData, UploadBufferData, GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
 use crate::audio_engine::signal_processor::delay::DelayModule;
-use crate::audio_engine::signal_processor::fft::{FftModule, RADICES, RADIX_AMT};
+use crate::audio_engine::signal_processor::fft::FftModule;
 use crate::audio_engine::signal_processor::hrtf::HrtfModule;
-use crate::audio_engine::signal_processor::transfer::TransferModule;
-use crate::audio_engine::{read_file_words, DynamicBufferData};
+use crate::audio_engine::signal_processor::transfer::{DownloadBufferData, TransferModule};
+use crate::audio_engine::{DynamicBufferData, GpuFrame, GpuWindow, InstanceBufferData};
+use crate::scene::listener::AudioListener;
+use crate::scene::source::{AudioSource, FRAME_SIZE};
 use crate::scene::Scene;
-use crate::util::vec3;
-use ash::vk::{Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, ComputePipelineCreateInfo, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorSetAllocateInfo, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, Extent3D, Fence, FenceCreateInfo, Filter, Format, Image, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryPropertyFlags, PhysicalDevice, Pipeline, PipelineCache, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PushConstantRange, Queue, SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
+use crate::vulkan::buffer::{BufferData, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use ash::vk::{BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, PhysicalDevice, Queue, SpecializationMapEntry};
 use ash::{Device, Instance};
-use crevice::std430::{AsStd430, Vec2, Vec3};
+use glam::{Vec2, Vec3};
 use std::f32::consts::PI;
 use std::mem::transmute;
 use std::rc::Rc;
-use std::slice::from_ref;
-use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
-use crate::scene::listener::AudioListener;
-use crate::scene::source::{AudioSource, FRAME_SIZE};
-use crate::vulkan::buffer::VulkanBuffer;
-use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -252,7 +250,7 @@ impl SignalProcessor {
             .expect("Failed to upload frames to the GPU!");
 
         // move the delayed windows to the fft buffer
-        let camera_delta = vec3::sub(listener.location, last_rt_pos);
+        let camera_delta = listener.location - last_rt_pos;
         self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, MAX_SOURCES);
 
         // perform fourier transform

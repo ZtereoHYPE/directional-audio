@@ -1,18 +1,18 @@
-use crate::audio_engine::gpu_structures::{FftBufferData, FftUboData, GPU_WINDOW_SIZE};
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
+use crate::audio_engine::signal_processor::SignalProcessorConstants;
+use crate::audio_engine::{read_file_words, GpuWindow};
 use crate::util::complex;
-use crate::util::complex::{root_of_unity, scalar_mult};
-use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
+use crate::util::complex::root_of_unity;
+use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
-use crevice::std430::Vec2;
+use glam::Vec2;
 use std::array::from_ref;
 use std::f32::consts::PI;
 use std::mem::transmute;
 use std::rc::Rc;
-use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
-use crate::audio_engine::read_file_words;
-use crate::audio_engine::signal_processor::SignalProcessorConstants;
-use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
-use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use vk_mem::Allocator;
 
 pub(crate) const RADIX_AMT: usize = 3;
 pub(crate) const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
@@ -66,7 +66,6 @@ impl FftModule {
         stages: Vec<FftStage>,
         constants: SignalProcessorConstants
     ) -> Self {
-
         let fft_ubos = unsafe {
             let mut buffers = vec![];
 
@@ -369,7 +368,7 @@ impl FftModule {
 
         if inverse {
             let normalization = 1.0 / len as f32;
-            result.iter_mut().for_each(|v| *v = scalar_mult(*v, normalization));
+            result.iter_mut().for_each(|v| *v *= normalization);
         }
 
         result
@@ -385,19 +384,36 @@ impl FftModule {
         let left = buffer.iter().step_by(2).cloned().collect();
         let right = buffer.iter().skip(1).step_by(2).cloned().collect();
 
-        let left = FftModule::cpu_fft(left, complex::mult(w, w));
-        let right = FftModule::cpu_fft(right, complex::mult(w, w));
+        let next_w = complex::mult(w, w);
+        let left = FftModule::cpu_fft(left, next_w);
+        let right = FftModule::cpu_fft(right, next_w);
 
         let half = len / 2;
         let mut x = Vec2 {x: 1.0, y: 0.0};
 
         for idx in 0..half {
             let multiplied_right = complex::mult(x, right[idx]);
-            buffer[idx       ] = complex::sum(left[idx], multiplied_right);
-            buffer[idx + half] = complex::sub(left[idx], multiplied_right);
+            buffer[idx       ] = left[idx] + multiplied_right;
+            buffer[idx + half] = left[idx] - multiplied_right;
             x = complex::mult(x, w);
         }
 
         buffer
     }
 }
+
+#[repr(C)]
+pub(crate) struct FftUboData {
+    pub(crate) split_size: u32,
+    pub(crate) radix_stride: u32,
+    pub(crate) angle_direction_factor: f32,
+    pub(crate) angle_spin_factor: f32,
+    pub(crate) normalization_factor: f32,
+}
+impl BufferData for FftUboData {}
+
+#[repr(C)]
+pub(crate) struct FftBufferData {
+    pub windows: [GpuWindow; MAX_INSTANCES]
+}
+impl BufferData for FftBufferData {}

@@ -1,21 +1,21 @@
 #![allow(unused)]
+extern crate core;
 
 mod audio_engine;
 pub mod scene;
 pub mod util;
 mod vulkan;
 
+use crate::audio_engine::ray_tracer::RtDebugData;
 use crate::audio_engine::AudioEngine;
 use crate::scene::source::Frame;
 use crate::scene::Scene;
-use crevice::internal::bytemuck::Zeroable;
-use crevice::std430::{Mat3, Vec3};
+use glam::{Mat3, Vec3};
 use std::error::Error;
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
-use crate::audio_engine::ray_tracer::RtDebugData;
 
 pub struct DebugData {
     pub rt: RtDebugData

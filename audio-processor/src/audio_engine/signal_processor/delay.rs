@@ -1,15 +1,17 @@
-use crate::audio_engine::gpu_structures::{DelayBufferData, FftBufferData, InstanceBufferData, GPU_WINDOW_SIZE};
-use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, SpecializationMapEntry, WriteDescriptorSet, WHOLE_SIZE};
-use ash::Device;
-use crevice::std430::{Std430, Vec3};
-use std::array::from_ref;
-use std::mem::transmute;
-use std::rc::Rc;
-use vk_mem::{Alloc, AllocationCreateInfo, Allocator, MemoryUsage};
-use crate::audio_engine::read_file_words;
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
+use crate::audio_engine::signal_processor::fft::FftBufferData;
 use crate::audio_engine::signal_processor::SignalProcessorConstants;
-use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
+use crate::audio_engine::{read_file_words, InstanceBufferData};
+use crate::scene::source::FRAME_SIZE;
+use crate::util::Byteable;
+use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::Device;
+use glam::{Vec2, Vec3};
+use std::array::from_ref;
+use std::rc::Rc;
+use vk_mem::Allocator;
 
 pub(crate) struct DelayModule {
     device: Device,
@@ -213,3 +215,10 @@ impl DelayModule {
         );
     }
 }
+
+#[repr(C)]
+pub(crate) struct DelayBufferData {
+    frames: [[[Vec2; FRAME_SIZE]; MAX_DELAY_FRAMES]; MAX_SOURCES]
+}
+
+impl BufferData for DelayBufferData {}

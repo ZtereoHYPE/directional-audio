@@ -1,16 +1,16 @@
-use crate::audio_engine::gpu_structures::{DelayBufferData, DownloadBufferData, FftBufferData, GpuWindow, UploadBufferData, MAX_DELAY_FRAMES, MAX_SOURCES};
-use crate::audio_engine::DynamicBufferData;
+use crate::audio_engine::gpu_constants::{MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
+use crate::audio_engine::signal_processor::delay::DelayBufferData;
+use crate::audio_engine::{DynamicBufferData, GpuFrame, GpuWindow};
 use crate::scene::source::{AudioSource, FRAME_SIZE};
-use crate::scene::Scene;
-use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, FenceCreateInfo, MemoryBarrier, MemoryPropertyFlags, PipelineStageFlags, Queue, SharingMode, SubmitInfo, WHOLE_SIZE};
+use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use ash::prelude::VkResult;
+use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, FenceCreateInfo, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo};
 use ash::Device;
-use crevice::std430::Vec2;
+use glam::Vec2;
 use std::array::from_ref;
 use std::error::Error;
 use std::rc::Rc;
-use ash::prelude::VkResult;
-use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator};
-use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
+use vk_mem::Allocator;
 
 pub struct TransferModule {
     allocator: Rc<Allocator>,
@@ -124,7 +124,6 @@ impl TransferModule {
         Ok(())
     }
 
-    // todo: this could be made a bit more efficient if only the relevant part of the frame is copied. This would involve performing the FFT here.
     pub unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer) -> VkResult<(Box<GpuWindow>, Box<GpuWindow>)> {
         self.device.reset_fences(from_ref(&self.fence))?;
 
@@ -155,6 +154,12 @@ impl Drop for TransferModule {
 }
 
 pub(crate) unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
+    // Null Check
+    assert!(!mem.is_null(), "Input pointer must not be null");
+
+    // Alignment Check
+    assert_eq!(mem as usize % align_of::<T>(), 0, "Input pointer must be properly aligned");
+
     // Allocate the required space
     let layout = std::alloc::Layout::new::<T>();
     let ptr = std::alloc::alloc_zeroed(layout) as *mut T;
@@ -168,4 +173,34 @@ pub(crate) unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
 
 pub(crate) unsafe fn copy_from_box<T>(src: &Box<T>, dst: *mut T) {
     std::ptr::copy(src.as_ref(), dst, 1);
+}
+
+/// The upload buffer contains the stream data that gets uploaded to the GPU every frame.
+#[repr(C)]
+pub(crate) struct UploadBufferData {
+    pub frames: [GpuFrame; MAX_SOURCES]
+}
+impl BufferData for UploadBufferData {}
+
+#[repr(C)]
+pub(crate) struct DownloadBufferData {
+    pub windows: [GpuWindow; 2]
+}
+
+impl BufferData for DownloadBufferData {}
+
+impl DownloadBufferData {
+    pub(crate) unsafe fn get_windows(&self) -> (Box<GpuWindow>, Box<GpuWindow>) { unsafe {
+        let left = copy_to_box(&self.windows[0] as *const GpuWindow);
+        let right = copy_to_box(&self.windows[1] as *const GpuWindow);
+
+        (left, right)
+    }}
+
+    pub(crate) const fn last_frame_range() -> (usize, usize) {
+        (
+            FRAME_SIZE * (SLIDING_WINDOW_FRAME_AMT - 1),
+            FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT,
+        )
+    }
 }

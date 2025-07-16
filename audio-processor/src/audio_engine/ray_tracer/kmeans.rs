@@ -1,17 +1,15 @@
-use crate::audio_engine::gpu_structures::{InstanceBufferData, RtOutputBufferData, MAX_SOURCES};
-use crate::audio_engine::ray_tracer::rays::{RayBufferData, SPHERE_POINTS};
-use crate::audio_engine::{read_file_words, DynamicBufferData};
-use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
-use ash::Device;
-use crevice::std430::{Std430, Vec3};
-use std::array::from_ref;
-use std::mem::ManuallyDrop;
-use std::rc::Rc;
-use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
-use crate::audio_engine::ray_tracer::RayTracerConstants;
-use crate::util::workgroup_div;
+use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
+use crate::audio_engine::ray_tracer::{RayTracerConstants, RtOutputBufferData};
+use crate::audio_engine::{read_file_words, DynamicBufferData, InstanceBufferData};
+use crate::util::{workgroup_div, Byteable};
 use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::Device;
+use glam::{vec3a, Vec3A};
+use std::array::from_ref;
+use std::rc::Rc;
+use vk_mem::Allocator;
 
 const ITERATIONS: usize = 6;
 pub(super) const CENTROIDS: usize = 8;
@@ -57,7 +55,7 @@ impl KMeansModule {
             allocator.clone()
         );
 
-        let init_data = Box::new(CentroidBufferData::from_initial(KMeansModule::initial_centroids()));
+        let init_data = Box::new(CentroidBufferData::from_initial());
         initializer.init_buffer(
             &mut centroids_buffer,
             InitMode::Populated(init_data),
@@ -434,23 +432,23 @@ impl KMeansModule {
         );
     }
 
-    fn initial_centroids() -> [Vec3; CENTROIDS] {
+    fn initial_centroids() -> [Vec3A; CENTROIDS] {
         [
-            Vec3 {x: 1.0, y: 0.0, z: 0.0},
-            Vec3 {x: -1.0, y: 0.0, z: 0.0},
-            Vec3 {x: 0.0, y: 1.0, z: 0.0},
-            Vec3 {x: 0.0, y: -1.0, z: 0.0},
-            Vec3 {x: 0.0, y: 0.0, z: 1.0},
-            Vec3 {x: 0.0, y: 0.0, z: -1.0},
-            Vec3 {x: 2.0, y: 0.0, z: 2.0},
-            Vec3 {x: -2.0, y: 0.0, z: 2.0},
+            vec3a(1.0, 0.0, 0.0),
+            vec3a(-1.0, 0.0, 0.0),
+            vec3a(0.0, 1.0, 0.0),
+            vec3a(0.0, -1.0, 0.0),
+            vec3a(0.0, 0.0, 1.0),
+            vec3a(0.0, 0.0, -1.0),
+            vec3a(2.0, 0.0, 2.0),
+            vec3a(-2.0, 0.0, 2.0),
         ]
     }
 }
 
 /// Buffer used to contain the centroid locations across iterations of the kmeans algorithm
 pub(super) struct CentroidBufferData {
-    centroids: [[Vec3; CENTROIDS]; MAX_SOURCES],
+    centroids: [[Vec3A; CENTROIDS]; MAX_SOURCES],
 }
 
 impl BufferData for CentroidBufferData {}
@@ -470,9 +468,9 @@ impl DynamicBufferData for CentroidBufferData {
 }
 
 impl CentroidBufferData {
-    pub(crate) fn from_initial(initial_centroids: [Vec3; CENTROIDS]) -> Self {
+    pub(crate) fn from_initial() -> Self {
         Self {
-            centroids: [initial_centroids; MAX_SOURCES]
+            centroids: [KMeansModule::initial_centroids(); MAX_SOURCES]
         }
     }
 

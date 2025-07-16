@@ -1,36 +1,38 @@
 use crate::audio_engine::DynamicBufferData;
-use crate::util::{vec3, Axis};
-use crevice::std430::Vec3;
 use crate::scene::mesh::bvh::{BvhBuffer, BvhBuilder};
+use crate::util::{vec3, Axis};
+use glam::{Vec3, Vec3A};
 
 pub(crate) mod bvh;
 
+#[repr(align(16))]
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
-    pub vertices: [Vec3; 3],
+    pub vertices: [Vec3A; 3],
 }
 
 impl Triangle {
+
     pub(crate) fn min_bound(&self) -> Vec3 {
-        vec3::min(vec3::min(self.vertices[0], self.vertices[1]), self.vertices[2])
+        Vec3A::min(Vec3A::min(self.vertices[0], self.vertices[1]), self.vertices[2]).into()
     }
 
     pub(crate) fn max_bound(&self) -> Vec3 {
-        vec3::max(vec3::max(self.vertices[0], self.vertices[1]), self.vertices[2])
+        Vec3A::max(Vec3A::max(self.vertices[0], self.vertices[1]), self.vertices[2]).into()
     }
 
     pub(crate) fn axis_min(&self, axis: Axis) -> f32 {
-        let mut min: f32 = vec3::axis(self.vertices[0], axis);
+        let mut min: f32 = vec3::axis(self.vertices[0].into(), axis);
         for vtx in self.vertices.iter().skip(1) {
-            min = f32::min(min, vec3::axis(*vtx, axis));
+            min = f32::min(min, vec3::axis(Vec3::from(*vtx), axis));
         }
         min
     }
 
     pub(crate) fn axis_max(&self, axis: Axis) -> f32 {
-        let mut max: f32 = vec3::axis(self.vertices[0], axis);
+        let mut max: f32 = vec3::axis(self.vertices[0].into(), axis);
         for vtx in self.vertices.iter().skip(1) {
-            max = f32::max(max, vec3::axis(*vtx, axis));
+            max = f32::max(max, vec3::axis(Vec3::from(*vtx), axis));
         }
         max
     }
@@ -53,7 +55,7 @@ impl DynamicBufferData for TriangleBuffer {
     }}
 
     fn size(&self) -> usize {
-        size_of::<Triangle>() * self.0.len() // should not be 0 to avoid crashes
+        48 * self.0.len()
     }
 }
 

@@ -1,19 +1,18 @@
+use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
+use crate::audio_engine::ray_tracer::{RayTracerConstants, RtOutputBufferData};
 use crate::audio_engine::{read_file_words, DynamicBufferData};
-use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, DeviceSize, MemoryBarrier, MemoryPropertyFlags, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
-use ash::Device;
-use crevice::std430::{Std430, Vec3, Vec4};
-use std::array::from_ref;
-use std::mem::ManuallyDrop;
-use std::rc::Rc;
-use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
-use crate::audio_engine::gpu_structures::{FftBufferData, RtOutputBufferData, MAX_SOURCES};
-use crate::audio_engine::ray_tracer::RayTracerConstants;
-use crate::scene::Scene;
 use crate::scene::source::AudioSource;
+use crate::scene::Scene;
+use crate::util::Byteable;
 use crate::vulkan::buffer::{BufferData, BufferOps, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::BufferInitializer;
+use ash::vk::{AccessFlags, Buffer, BufferCreateInfo, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use ash::Device;
+use glam::{Vec3, Vec3A, Vec4};
+use std::array::from_ref;
+use std::rc::Rc;
+use vk_mem::{Alloc, Allocator};
 
-pub(crate) const SPHERE_POINTS: usize = 1024;
 
 pub(super) struct RayModule {
     device: Device,
@@ -96,6 +95,11 @@ impl RayModule {
                 .expect("Failed to create buffer")
         };
 
+        unsafe {
+            initializer.init_dynamic_buffer(&device, queue.0, scene.mesh.bvh.clone(), &mut bvh_buffer);
+            initializer.init_dynamic_buffer(&device, queue.0, scene.mesh.triangles.clone(), &mut triangle_buffer);
+        }
+        
         let output_buffer = VulkanBuffer::new(
             BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
@@ -277,6 +281,20 @@ impl RayModule {
             self.sources_buffer.handle(),
             SourceBufferData::region()
         );
+
+        let memory_barrier = MemoryBarrier::default()
+            .src_access_mask(AccessFlags::TRANSFER_WRITE) // flush any transfer write caches
+            .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
+
+        self.device.cmd_pipeline_barrier(
+            *command_buffer,
+            PipelineStageFlags::TRANSFER, 
+            PipelineStageFlags::COMPUTE_SHADER,
+            DependencyFlags::empty(),
+            from_ref(&memory_barrier),
+            &[],
+            &[]
+        );
     }
 
     pub(super) unsafe fn shoot_rays(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, store_rays: bool) {
@@ -314,7 +332,7 @@ impl RayModule {
         self.device.cmd_dispatch(*command_buffer, SPHERE_POINTS as u32 / 64, source_amt, 1);
 
         let memory_barrier = MemoryBarrier::default()
-            .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches
+            .src_access_mask(AccessFlags::SHADER_WRITE) // flush any shader write caches
             .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
 
         self.device.cmd_pipeline_barrier(
@@ -328,8 +346,6 @@ impl RayModule {
         );
     }
 
-    /// Warning: The buffer returned by this does not contain the data yet!
-    /// The command buffer has to be submitted and fenced on first!
     pub(super) unsafe fn copy_ray_buffer(&mut self, command_buffer: &mut CommandBuffer) {
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::SHADER_WRITE) // flush any shader write caches
@@ -362,13 +378,13 @@ impl BufferData for RayBufferData {}
 
 
 pub(super) struct SourceBufferData {
-    sources: [Vec3; MAX_SOURCES]
+    sources: [Vec3A; MAX_SOURCES]
 }
 
 impl SourceBufferData {
     pub(crate) fn copy_coordinates(&mut self, sources: &Vec<AudioSource>) {
         for (idx, source) in sources.iter().enumerate() {
-            self.sources[idx] = source.coordinates;
+            self.sources[idx] = source.coordinates.into();
         }
     }
 }

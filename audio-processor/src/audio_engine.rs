@@ -1,25 +1,31 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 
-use crate::audio_engine::gpu_structures::{GpuFrame, GpuWindow, InstanceBufferData};
+use crate::audio_engine::gpu_constants::{MAX_INSTANCES, SLIDING_WINDOW_FRAME_AMT};
 use crate::audio_engine::ray_tracer::{RayTracer, RtDebugData};
 use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::source::{Frame, FRAME_SIZE};
 use crate::scene::Scene;
+use crate::vulkan::buffer::{BufferData, BufferOps};
+use crate::vulkan::buffer_initializer::BufferInitializer;
 use ash::ext::debug_utils;
-use ash::vk::{ApplicationInfo, Buffer, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
+use ash::vk::{ApplicationInfo, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
-use crevice::std430::{Mat3, Vec2, Vec3};
+use bytemuck::Zeroable;
+use glam::{Mat3, Vec2, Vec3};
 use std::array::from_ref;
 use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
 use std::{fs::File, path::Path};
-use vk_mem::Allocation;
-use crate::vulkan::buffer::BufferOps;
-use crate::vulkan::buffer_initializer::BufferInitializer;
 
 pub(crate) mod signal_processor;
-pub(crate) mod gpu_structures;
+pub(crate) mod gpu_constants;
 pub(crate) mod ray_tracer;
+
+/// Represents a single audio frame on the GPU, containing complex values to enable FFT
+pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
+
+/// Represents the window used for partitioned convolution
+pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
 
 pub(crate) trait DynamicBufferData {
     unsafe fn serialize(&self, dst: *mut u8);
@@ -269,7 +275,7 @@ fn read_file_words(path: impl AsRef<Path>) -> Vec<u32> {
 
 pub(crate) fn frame_to_gpu(frame: &Frame) -> GpuFrame {
     // todo: avoid initialization here
-    let mut samples = [Vec2{x: 0.0, y: 0.0}; FRAME_SIZE];
+    let mut samples = [Vec2::ZERO; FRAME_SIZE];
 
     for (idx, value) in frame.iter().enumerate() {
         samples[idx].x = *value;
@@ -286,4 +292,37 @@ pub(crate) fn gpu_to_frame(input: &GpuFrame) -> Frame {
     }
 
     frame
+}
+
+
+#[repr(align(16))]
+#[derive(Copy, Clone, Zeroable)]
+pub struct AudioInstance {
+    pub direction: Vec3,
+    pub distance: f32,
+    pub index: u32,
+}
+
+pub struct InstanceBufferData {
+    pub instances: [AudioInstance; MAX_INSTANCES],
+}
+
+impl BufferData for InstanceBufferData {}
+
+impl InstanceBufferData {
+    pub(crate) fn from_scene_data(scene: &Scene) -> Self {
+        let mut instance = Self {
+            instances: [AudioInstance::zeroed(); MAX_INSTANCES]
+        };
+
+        for (idx, source) in scene.sources.iter().enumerate() {
+            instance.instances[idx] = (AudioInstance {
+                direction: source.coordinates,
+                distance: source.coordinates.length(),
+                index: idx as u32,
+            });
+        }
+
+        instance
+    }
 }

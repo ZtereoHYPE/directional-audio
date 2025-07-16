@@ -1,19 +1,17 @@
+use ash::vk;
+use ash::vk::{BufferCopy, BufferCreateInfo, BufferUsageFlags, DeviceSize, SharingMode, WHOLE_SIZE};
 use std::alloc::{alloc_zeroed, Layout};
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;
-use std::mem::ManuallyDrop;
-use std::ptr::NonNull;
 use std::rc::Rc;
 use std::slice::from_ref;
-use ash::vk;
-use ash::vk::{BufferCopy, BufferCreateInfo, BufferUsageFlags, DeviceSize, SharingMode, WHOLE_SIZE};
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
 
 // todo: this interface could be improved to allow any form of data to be represented here
 //       instead of just inline data (eg. provide serialize(), size(), max_size(), etc...)
-// pub(crate) trait DynamicBufferData : BufferData {
-//
-// }
+pub(crate) trait InlineData : Sized {
+
+}
 
 pub(crate) trait BufferData : Sized {
     const REGION: BufferCopy = BufferCopy {
@@ -76,9 +74,6 @@ pub(crate) struct BufferBase<T: BufferData> {
     _marker: PhantomData<T> // While this struct doesn't directly own a T, it still "contains" it (through the buffer)
 }
 
-
-
-
 pub(crate) struct VulkanBuffer<T: BufferData> {
     base: BufferBase<T>,
 }
@@ -131,7 +126,7 @@ impl<T: BufferData> Drop for VulkanBuffer<T> {
 /// # Safety:
 /// To avoid UB caused by interior mutability, UnsafeCell<T> is used to store the pointer
 /// to the locally-mapped memory.
-pub(crate) struct LocalVulkanBuffer<T: BufferData> {
+pub(crate) struct LocalVulkanBuffer<T: BufferData> { // todo: require + InlineData
     base: BufferBase<T>,
     map: *mut UnsafeCell<T>, // todo: check if there's a better way than *mut to store this
 }

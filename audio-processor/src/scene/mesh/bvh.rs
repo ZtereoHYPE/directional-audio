@@ -1,8 +1,7 @@
 use crate::audio_engine::DynamicBufferData;
 use crate::scene::mesh::Triangle;
-use crate::util::vec3::{MAX_VEC3, MIN_VEC3, ZERO};
 use crate::util::{vec3, Axis};
-use crevice::std430::{AsStd430, Vec3};
+use glam::Vec3;
 
 pub(crate) const MAX_BVH_DEPTH: usize = 64;
 const BVH_SPLIT_ATTEMPTS: usize = 8;
@@ -24,7 +23,7 @@ impl DynamicBufferData for BvhBuffer {
 }
 
 
-#[derive(Clone, AsStd430)]
+#[derive(Clone)]
 pub(crate) struct BvhNode {
     min: Vec3,
     idx: u32,
@@ -35,9 +34,9 @@ pub(crate) struct BvhNode {
 impl Default for BvhNode {
     fn default() -> Self {
         Self {
-            min: ZERO,
+            min: Vec3::ZERO,
             idx: u32::default(),
-            max: ZERO,
+            max: Vec3::ZERO,
             amt: u32::default()
         }
     }
@@ -56,16 +55,16 @@ impl BvhNode {
     }
 
     fn expand(&mut self, triangle: &Triangle) {
-        self.min = vec3::min(self.min, triangle.min_bound());
-        self.max = vec3::max(self.max, triangle.max_bound());
+        self.min = Vec3::min(self.min, triangle.min_bound());
+        self.max = Vec3::max(self.max, triangle.max_bound());
     }
 
     fn area(&self) -> f32 {
-        if vec3::eq(self.max, MIN_VEC3) || vec3::eq(self.min, MAX_VEC3) {
+        if self.max == Vec3::MIN || self.min == Vec3::MAX {
             return 0.0;
         }
 
-        let len = vec3::sub(self.max, self.min);
+        let len = self.max - self.min;
         2.0 * (len.x * len.y + len.z * len.y + len.x * len.z)
     }
 }
@@ -170,7 +169,7 @@ impl<'a> BvhBuilder<'a> {
         // Get the node's AABB information
         let node = self.bvh_list[node_idx].clone();
         let start_pos = node.min;
-        let dimensions = vec3::div_scalar(vec3::sub(node.max, node.min), (BVH_SPLIT_ATTEMPTS + 1) as f32);
+        let dimensions = (node.max - node.min) / (BVH_SPLIT_ATTEMPTS + 1) as f32;
 
         // Use the SAH to find the best split position by trying to split at SPLIT_ATTEMPT uniform intervals
         let mut best_axis = None;

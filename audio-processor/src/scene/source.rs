@@ -2,8 +2,8 @@ pub mod file;
 pub mod frequency;
 pub mod quiet;
 
-use crate::audio_engine::gpu_structures::GpuFrame;
-use crevice::std430::Vec3;
+use crate::audio_engine::GpuFrame;
+use glam::Vec3;
 
 pub const FRAME_SIZE: usize = 512;
 pub type Frame = [f32; FRAME_SIZE];
@@ -28,9 +28,5 @@ impl AudioSource {
 
     pub fn update_location(&mut self, coordinates: Vec3) {
         self.coordinates = coordinates;
-    }
-    
-    pub fn location(&self) -> Vec3 {
-        self.coordinates
     }
 }

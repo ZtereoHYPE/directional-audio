@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 ash = "0.38.0"
-crevice = "0.18.0"  # for automatic GLSL struct-padding
+bytemuck = "1.23.1"
+glam = { version = "0.30.4", features = ["bytemuck"] }
 hound = "3.5.1"
 sofar = "0.2.1"
 vk-mem = "0.4.0"
