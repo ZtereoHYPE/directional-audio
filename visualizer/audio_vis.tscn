@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=30 format=4 uid="uid://u8slr1sr2sxb"]
 
 [ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_icnq2"]
 [ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://scripts/slider_label.gd" id="2_a6ww5"]
@@ -11,6 +11,7 @@
 [ext_resource type="Script" uid="uid://b8n4t5ovhdibx" path="res://addons/proto_controller/proto_controller.gd" id="7_go5gf"]
 [ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/arrow.obj" id="8_dhqrm"]
 [ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://scripts/ray_visualizer.gd" id="10_qea6r"]
+[ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://scripts/instance_visualizer.gd" id="12_dhqrm"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_a6ww5"]
 
@@ -62,6 +63,25 @@ shading_mode = 2
 albedo_color = Color(0.347155, 0.749055, 0.370706, 1)
 
 [sub_resource type="ImmediateMesh" id="ImmediateMesh_go5gf"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_dhqrm"]
+
+[sub_resource type="MultiMesh" id="MultiMesh_d2a62"]
+transform_format = 1
+instance_count = 13
+mesh = SubResource("BoxMesh_dhqrm")
+buffer = PackedFloat32Array(0, 2.8026e-45, 1.4013e-45, 1.4013e-45, 4.2039e-45, 2.8026e-45, 2.8026e-45, 5.60519e-45, 4.2039e-45, 4.2039e-45, 7.00649e-45, 5.60519e-45, 5.60519e-45, 8.40779e-45, 7.00649e-45, 7.00649e-45, 9.80909e-45, 8.40779e-45, 8.40779e-45, 1.12104e-44, 9.80909e-45, 9.80909e-45, 1.26117e-44, 1.12104e-44, 1.12104e-44, 1.4013e-44, 1.26117e-44, 1.26117e-44, 1.54143e-44, 1.4013e-44, 1.4013e-44, 1.68156e-44, 1.54143e-44, 1.54143e-44, 1.82169e-44, 1.68156e-44, 1.68156e-44, 1.96182e-44, 1.82169e-44, 1.82169e-44, 2.10195e-44, 1.96182e-44, 1.96182e-44, 2.24208e-44, 2.10195e-44, 2.10195e-44, 2.38221e-44, 2.24208e-44, 2.24208e-44, 2.52234e-44, 2.38221e-44, 2.38221e-44, 2.66247e-44, 2.52234e-44, 2.52234e-44, 2.8026e-44, 2.66247e-44, 2.66247e-44, 2.94273e-44, 2.8026e-44, 2.8026e-44, 3.08286e-44, 2.94273e-44, 2.94273e-44, 3.22299e-44, 3.08286e-44, 3.08286e-44, 3.36312e-44, 3.22299e-44, 3.22299e-44, 3.50325e-44, 3.36312e-44, 3.36312e-44, 3.64338e-44, 3.50325e-44, 3.50325e-44, 3.78351e-44, 3.64338e-44, 3.64338e-44, 3.92364e-44, 3.78351e-44, 3.78351e-44, 4.06377e-44, 3.92364e-44, 3.92364e-44, 4.2039e-44, 4.06377e-44, 4.06377e-44, 4.34403e-44, 4.2039e-44, 4.2039e-44, 4.48416e-44, 4.34403e-44, 4.34403e-44, 4.62428e-44, 4.48416e-44, 4.48416e-44, 4.76441e-44, 4.62428e-44, 4.62428e-44, 4.90454e-44, 4.76441e-44, 4.76441e-44, 5.04467e-44, 4.90454e-44, 4.90454e-44, 5.1848e-44, 5.04467e-44, 5.04467e-44, 5.32493e-44, 5.1848e-44, 5.1848e-44, 5.46506e-44, 5.32493e-44, 5.32493e-44, 0, 5.46506e-44, 5.46506e-44, 1.4013e-45, 0, 226, 47, 0.1155, 0.132, 0.1595, 1, 0.018018, 1, 224.469, 46.6955, 0.1155, 0.132, 0.1595, 1, 0.0111228, 0.993522, 223.172, 45.8284, 0.1155, 0.132, 0.1595, 1, 0.00527734, 0.975073, 222.304, 44.5307, 0.1155, 0.132, 0.1595, 1, 0.00137157, 0.947462, 222, 43, 0.1155, 0.132)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dhqrm"]
+albedo_color = Color(0.304676, 0.62782, 0.232377, 1)
+disable_receive_shadows = true
+
+[sub_resource type="SphereMesh" id="SphereMesh_d2a62"]
+material = SubResource("StandardMaterial3D_dhqrm")
+radius = 0.25
+height = 0.5
+radial_segments = 16
+rings = 8
 
 [node name="Root" type="Node3D"]
 
@@ -369,10 +389,25 @@ metadata/_custom_type_script = "uid://bogt0ewoml0pc"
 [node name="Visualization" type="Node3D" parent="3D Scene"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.93979, -2.68506, 11.3828)
 
-[node name="RayVisualizer" type="MeshInstance3D" parent="3D Scene/Visualization"]
+[node name="Ray Visualizer" type="MeshInstance3D" parent="3D Scene/Visualization"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.60112, 7.31321, 0)
 mesh = SubResource("ImmediateMesh_go5gf")
 script = ExtResource("10_qea6r")
+color_map = Dictionary[float, Color]({
+1.0: Color(0.9, 0, 0, 1),
+2.0: Color(0, 0.3, 0.9, 1),
+3.0: Color(0.0732942, 0.667185, 1.92523e-07, 1)
+})
+
+[node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Visualization"]
+
+[node name="Instance Visualizer" type="MultiMeshInstance3D" parent="3D Scene/Visualization"]
+multimesh = SubResource("MultiMesh_d2a62")
+script = ExtResource("12_dhqrm")
+
+[node name="Instance" type="MeshInstance3D" parent="3D Scene/Visualization/Instance Visualizer"]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
+mesh = SubResource("SphereMesh_d2a62")
 
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Label" method="_on_h_slider_value_changed"]
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="3D Scene/Player/Head/AudioListenerNode" method="on_volume_change"]
@@ -380,4 +415,5 @@ script = ExtResource("10_qea6r")
 [connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer/Debug Panel Checkbox" to="GUI/Debug Panel" method="_on_debug_panel_checkbox_toggled"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Orbiting Camera" method="_on_person_selector_item_selected"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/RayVisualizer" method="_on_audio_listener_node_visualization_data_received"]
+[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Ray Visualizer" method="_on_audio_listener_node_visualization_data_received"]
+[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Instance Visualizer" method="_on_audio_listener_node_visualization_data_received"]
