@@ -18,6 +18,7 @@ const uint INITIAL_OFFSET = -(WINDOW_SIZE - FRAME_SIZE) + DELAY_BUFFER_SIZE; // 
 
 
 layout(push_constant, std430) uniform Camera {
+    mat3 rotation;
     vec3 camera_delta;
     uint frame_idx;
 };
@@ -30,7 +31,7 @@ layout(binding = 1, std430) readonly restrict buffer DelayBuffer {
     vec2 samples[];
 };
 
-layout(binding = 2, std430) restrict buffer FftInput {
+layout(binding = 2, std430) writeonly restrict buffer FftInput {
     vec2 fft_input[];
 };
 
@@ -53,10 +54,10 @@ uint delayed_index(float dist, uint instance_idx) {
 // height of dispatch is given by instance count
 void main() {
     Instance instance = instances[gl_GlobalInvocationID.y];
-    vec3 corrected_dir = instance.direction - camera_delta;
+    vec3 corrected_dir = rotation * (instance.direction - camera_delta);
     float corrected_dist = instance.dist - length(instance.direction) + length(corrected_dir);
 
-    // If we are the first invocation for an instance, save it
+    // If we are the first invocation for an instance, save it for the
     if (gl_GlobalInvocationID.x == 0) {
         instances[gl_GlobalInvocationID.y].direction = corrected_dir;
         instances[gl_GlobalInvocationID.y].dist = corrected_dist;

@@ -8,7 +8,7 @@ use crate::vulkan::buffer::{BufferOps, InlineBufferData, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
-use glam::{Vec2, Vec3};
+use glam::{Mat3, Mat3A, Vec2, Vec3};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
@@ -124,7 +124,7 @@ impl DelayModule {
         let (pipeline, pipeline_layout) = {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(16);
+                .size(64);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .set_layouts(from_ref(&descriptor_set_layout))
@@ -178,7 +178,7 @@ impl DelayModule {
         }
     }
 
-    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: u32, camera_delta: Vec3, instance_amt: usize) {
+    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: u32, camera_delta: Vec3, camera_rotation: Mat3, instance_amt: usize) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -194,8 +194,9 @@ impl DelayModule {
             self.pipeline
         );
 
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, camera_delta.as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 12, frame_counter.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(camera_rotation).as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, camera_delta.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 60, frame_counter.as_bytes());
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt as u32);
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);

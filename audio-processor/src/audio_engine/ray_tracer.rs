@@ -70,7 +70,6 @@ pub(crate) struct RayTracer {
     debug_module: DebugRayModule,
 
     last_rt_pos: Vec3,
-    last_rt_rot: Mat3
 }
 
 impl RayTracer {
@@ -178,7 +177,6 @@ impl RayTracer {
         );
 
         let last_rt_pos = scene.listener.location;
-        let last_rt_rot = scene.listener.rotation;
 
         Self {
             device,
@@ -192,7 +190,6 @@ impl RayTracer {
             debug_module,
 
             last_rt_pos,
-            last_rt_rot,
         }
     }
 
@@ -267,7 +264,6 @@ impl RayTracer {
 
     pub(super) unsafe fn copy_sources_debug(&mut self, scene: &Scene) {
         let rt_pos = scene.listener.location;
-        let rt_rot = scene.listener.rotation;
 
         self.device
             .reset_fences(from_ref(&self.fence))
@@ -289,7 +285,7 @@ impl RayTracer {
         self.ray_module.stage_sources(&mut self.command_buffer, &scene.sources);
 
         // Trace the rays
-        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, rt_pos, rt_rot);
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, rt_pos);
 
         // Submit the command buffer
         self.device
@@ -309,7 +305,6 @@ impl RayTracer {
             .expect("Failed to wait for fence!");
 
         self.last_rt_pos = rt_pos; // update it only once it's fully done
-        self.last_rt_rot = rt_rot;
     }
 
     pub(super) fn instance_buffer(&self) -> &VulkanBuffer<InstanceBufferData> {

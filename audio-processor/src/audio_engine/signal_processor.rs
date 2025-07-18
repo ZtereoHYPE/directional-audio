@@ -251,7 +251,7 @@ impl SignalProcessor {
 
         // move the delayed windows to the fft buffer
         let camera_delta = listener.location - last_rt_pos;
-        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, MAX_SOURCES);
+        self.delay_module.apply_delay(&mut self.compute_command_buffer, self.counter as u32, camera_delta, listener.rotation, MAX_SOURCES);
 
         // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut self.compute_command_buffer, 0, false, MAX_SOURCES);

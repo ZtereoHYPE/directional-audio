@@ -88,7 +88,7 @@ impl DebugRayModule {
         let (pipeline, pipeline_layout) = unsafe {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(64);
+                .size(12);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .set_layouts(from_ref(&descriptor_set_layout))
@@ -133,7 +133,7 @@ impl DebugRayModule {
         }
     }
 
-    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, rotation: Mat3) {
+    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -157,18 +157,10 @@ impl DebugRayModule {
             Vec3A::from(origin).as_bytes()
         );
 
-        self.device.cmd_push_constants(
-            *command_buffer,
-            self.pipeline_layout,
-            ShaderStageFlags::COMPUTE,
-            16,
-            Mat3A::from(rotation).as_bytes()
-        );
-
         self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);
 
         let memory_barrier = MemoryBarrier::default()
-            .src_access_mask(AccessFlags::SHADER_WRITE) // flush any transfer write caches
+            .src_access_mask(AccessFlags::SHADER_WRITE) // flush any shader write caches
             .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
 
         self.device.cmd_pipeline_barrier(
