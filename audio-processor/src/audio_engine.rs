@@ -179,7 +179,8 @@ impl AudioEngine {
 
     pub(crate) fn process_frames(&mut self, copy_debug_info: bool) -> (Frame, Frame, Option<RtDebugData>) { unsafe {
             self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
-            self.ray_tracer.copy_sources_debug(&self.scene);
+            // self.ray_tracer.copy_sources_debug(&self.scene);
+
             let ray_debug_data = if copy_debug_info {
                 Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
             } else {

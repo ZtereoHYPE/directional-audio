@@ -276,6 +276,10 @@ impl RayModule {
     }
 
     pub(super) unsafe fn shoot_rays(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, store_rays: bool) {
+        if store_rays {
+            self.device.cmd_fill_buffer(*command_buffer, self.ray_buffer.handle(), 0, WHOLE_SIZE, 0);
+        }
+        
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
