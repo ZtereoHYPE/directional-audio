@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://1fu50ubmac5f"
+path="res://.godot/imported/bubble_ripple.glsl-b2fa2ffdc7b14023841d339084559171.res"
+
+[deps]
+
+source_file="res://assets/shaders/bubble_ripple.glsl"
+dest_files=["res://.godot/imported/bubble_ripple.glsl-b2fa2ffdc7b14023841d339084559171.res"]
+
+[params]
+

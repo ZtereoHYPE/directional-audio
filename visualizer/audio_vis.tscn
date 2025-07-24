@@ -1,24 +1,20 @@
-[gd_scene load_steps=30 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=33 format=4 uid="uid://u8slr1sr2sxb"]
 
 [ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_icnq2"]
-[ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://scripts/slider_label.gd" id="2_a6ww5"]
+[ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://assets/scripts/slider_label.gd" id="2_a6ww5"]
 [ext_resource type="Texture2D" uid="uid://c72lqe2pq4p1a" path="res://assets/speaker.png" id="2_s3eio"]
-[ext_resource type="Script" uid="uid://djmwklw6hpghb" path="res://scripts/debug_panel.gd" id="3_2gwym"]
 [ext_resource type="Texture2D" uid="uid://e1hkk561gs85" path="res://assets/play.png" id="3_lwliu"]
 [ext_resource type="Texture2D" uid="uid://qhk174tmjpj0" path="res://assets/pause.png" id="4_qea6r"]
 [ext_resource type="Script" uid="uid://bogt0ewoml0pc" path="res://addons/orbit_camera/orbit_camera.gd" id="6_lx530"]
-[ext_resource type="Script" uid="uid://8d5i3x7net1n" path="res://scripts/orbitater.gd" id="6_viom0"]
+[ext_resource type="Script" uid="uid://8d5i3x7net1n" path="res://assets/scripts/orbitater.gd" id="6_viom0"]
 [ext_resource type="Script" uid="uid://b8n4t5ovhdibx" path="res://addons/proto_controller/proto_controller.gd" id="7_go5gf"]
 [ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/arrow.obj" id="8_dhqrm"]
-[ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://scripts/ray_visualizer.gd" id="10_qea6r"]
-[ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://scripts/instance_visualizer.gd" id="12_dhqrm"]
+[ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://assets/scripts/ray_visualizer.gd" id="10_qea6r"]
+[ext_resource type="Script" uid="uid://b2dga4ojqmusd" path="res://assets/scripts/bubble_visualizer.gd" id="12_d2a62"]
+[ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://assets/scripts/instance_visualizer.gd" id="12_dhqrm"]
+[ext_resource type="Shader" uid="uid://bdkbe62dee0cs" path="res://assets/shaders/bubble.gdshader" id="12_e6uwl"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_a6ww5"]
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_a6ww5"]
-bg_color = Color(0, 0, 0, 0.470588)
-
-[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_2gwym"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_6fmou"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -63,6 +59,20 @@ shading_mode = 2
 albedo_color = Color(0.347155, 0.749055, 0.370706, 1)
 
 [sub_resource type="ImmediateMesh" id="ImmediateMesh_go5gf"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_jo7w2"]
+render_priority = 0
+shader = ExtResource("12_e6uwl")
+
+[sub_resource type="SphereMesh" id="SphereMesh_u6mdc"]
+material = SubResource("ShaderMaterial_jo7w2")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_e6uwl"]
+shading_mode = 0
+
+[sub_resource type="QuadMesh" id="QuadMesh_jo7w2"]
+material = SubResource("StandardMaterial3D_e6uwl")
+size = Vector2(2, 1)
 
 [sub_resource type="BoxMesh" id="BoxMesh_dhqrm"]
 
@@ -217,100 +227,6 @@ popup/item_0/id = 0
 popup/item_1/text = "Third Person"
 popup/item_1/id = 1
 
-[node name="Debug Panel" type="PanelContainer" parent="GUI"]
-anchors_preset = 11
-anchor_left = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -368.0
-grow_horizontal = 0
-grow_vertical = 2
-theme = ExtResource("1_icnq2")
-theme_override_styles/panel = SubResource("StyleBoxFlat_a6ww5")
-script = ExtResource("3_2gwym")
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel"]
-layout_mode = 2
-
-[node name="HSeparator" type="HSeparator" parent="GUI/Debug Panel/VBoxContainer"]
-custom_minimum_size = Vector2(0, 10)
-layout_mode = 2
-theme_override_styles/separator = SubResource("StyleBoxEmpty_2gwym")
-
-[node name="Label" type="Label" parent="GUI/Debug Panel/VBoxContainer"]
-layout_mode = 2
-theme_type_variation = &"HeaderSmall"
-text = "Debug Panel"
-horizontal_alignment = 1
-
-[node name="ScrollContainer" type="ScrollContainer" parent="GUI/Debug Panel/VBoxContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="Source Relative Locations" type="PanelContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations"]
-layout_mode = 2
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer"]
-layout_mode = 2
-
-[node name="Label" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
-layout_mode = 2
-text = "Relative Source Locations:"
-
-[node name="Label2" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-theme_type_variation = &"TooltipLabel"
-text = "Source 1: [0, 0, 0] ..."
-
-[node name="Label3" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-theme_type_variation = &"TooltipLabel"
-text = "Source 1: [0, 0, 0] ..."
-
-[node name="Label4" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-theme_type_variation = &"TooltipLabel"
-text = "Source 1: [0, 0, 0] ..."
-
-[node name="Label5" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-theme_type_variation = &"TooltipLabel"
-text = "Source 1: [0, 0, 0] ..."
-
-[node name="Label6" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Source Relative Locations/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-theme_type_variation = &"TooltipLabel"
-text = "Source 1: [0, 0, 0] ..."
-
-[node name="Timings" type="PanelContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Timings"]
-layout_mode = 2
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Timings/MarginContainer"]
-layout_mode = 2
-
-[node name="Label" type="Label" parent="GUI/Debug Panel/VBoxContainer/ScrollContainer/MarginContainer/VBoxContainer/Timings/MarginContainer/VBoxContainer"]
-layout_mode = 2
-text = "Timings:"
-
 [node name="3D Scene" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.24801, 0, 0)
 
@@ -331,7 +247,7 @@ mesh = SubResource("ArrayMesh_6fmou")
 skeleton = NodePath("../../..")
 
 [node name="AudioSourceNode" type="AudioSourceNode" parent="3D Scene"]
-audio_file = "uid://chh4xvc6nafqi"
+audio_file = "uid://b4imkxkoekk5e"
 loop_audio = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.84842, -6.59833)
 
@@ -400,20 +316,28 @@ color_map = Dictionary[float, Color]({
 })
 
 [node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Visualization"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.87587, 4.5934, -8.86444)
+mesh = SubResource("SphereMesh_u6mdc")
+script = ExtResource("12_d2a62")
+
+[node name="TextureViewer" type="MeshInstance3D" parent="3D Scene/Visualization/Bubble Visualizer"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0153, 1.63816, 0)
+mesh = SubResource("QuadMesh_jo7w2")
 
 [node name="Instance Visualizer" type="MultiMeshInstance3D" parent="3D Scene/Visualization"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -393.652, -51.3183, 0)
 multimesh = SubResource("MultiMesh_d2a62")
 script = ExtResource("12_dhqrm")
 
 [node name="Instance" type="MeshInstance3D" parent="3D Scene/Visualization/Instance Visualizer"]
-transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, -44.5109, 15.0532, 0)
 mesh = SubResource("SphereMesh_d2a62")
 
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Label" method="_on_h_slider_value_changed"]
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="3D Scene/Player/Head/AudioListenerNode" method="on_volume_change"]
 [connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause/PlayPauseButton" to="3D Scene/Player/Head/AudioListenerNode" method="set_play_state"]
-[connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer/Debug Panel Checkbox" to="GUI/Debug Panel" method="_on_debug_panel_checkbox_toggled"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Orbiting Camera" method="_on_person_selector_item_selected"]
 [connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Ray Visualizer" method="_on_audio_listener_node_visualization_data_received"]
+[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Bubble Visualizer" method="_on_audio_listener_node_visualization_data_received"]
 [connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Instance Visualizer" method="_on_audio_listener_node_visualization_data_received"]
