@@ -5,7 +5,7 @@ use crate::audio_engine::signal_processor::SignalProcessorConstants;
 use crate::audio_engine::{read_file_words, GpuWindow, InstanceBufferData};
 use crate::scene::listener::hrtf_filter::HrtfFilter;
 use crate::util::{workgroup_div, AsBytes};
-use crate::vulkan::buffer::{BufferOps, VulkanBuffer};
+use crate::vulkan::buffer::{VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;

@@ -3,10 +3,22 @@ use ash::vk::{BufferCopy, BufferCreateInfo, BufferUsageFlags, DeviceSize, Sharin
 use std::alloc::{alloc_zeroed, Layout};
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;
+use std::ptr::NonNull;
 use std::rc::Rc;
 use std::slice::from_ref;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
 
+/// Represents data that can be serialized into a VulkanBuffer.
+pub(crate) trait BufferData: Sized {
+    unsafe fn serialize(&self, dst: *mut u8);
+    fn size(&self) -> usize;
+}
+
+/// Represents buffer data provided "inline" directly as a struct.
+/// Enables local (CPU) reading, and facilitates serialization and size.
+///
+/// # Note:
+/// **Only primitive/inline types are allowed** (no Vec<_>, Box<_>, Rc<_>, etc.).
 pub(crate) trait InlineBufferData: BufferData {
     const REGION: BufferCopy = BufferCopy {
         src_offset: 0,
@@ -18,7 +30,7 @@ pub(crate) trait InlineBufferData: BufferData {
         from_ref(&Self::REGION)
     }
 
-    fn from_memory_map(pointer: *mut u8) -> *mut UnsafeCell<Self> {
+    fn from_memory_map(pointer: *mut u8) -> NonNull<Self> {
         if pointer.is_null() {
             panic!("The given pointer is null!");
         }
@@ -27,7 +39,7 @@ pub(crate) trait InlineBufferData: BufferData {
             panic!("The given pointer is not properly aligned!");
         }
 
-        pointer.cast()
+        NonNull::new(pointer.cast()).unwrap()
     }
 
     unsafe fn to_local_copy(&self) -> Box<Self> {
@@ -47,11 +59,6 @@ pub(crate) trait InlineBufferData: BufferData {
     }
 }
 
-pub(crate) trait BufferData: Sized {
-    unsafe fn serialize(&self, dst: *mut u8);
-    fn size(&self) -> usize;
-}
-
 /// Implement the buffer data functions for all inline data
 impl<T: InlineBufferData> BufferData for T {
     unsafe fn serialize(&self, dst: *mut u8) { unsafe {
@@ -67,21 +74,6 @@ impl<T: InlineBufferData> BufferData for T {
     }
 }
 
-
-pub(crate) trait BufferOps<T: BufferData>  {
-    fn base(&self) -> &BufferBase<T>;
-    fn base_mut(&mut self) -> &mut BufferBase<T>;
-
-    // other methods, with default implementations
-    fn handle(&self) -> vk::Buffer {
-        self.base().handle
-    }
-
-    fn size(&self) -> DeviceSize {
-        size_of::<T>() as DeviceSize
-    }
-}
-
 pub(crate) struct BufferBase<T: BufferData> {
     handle: vk::Buffer,
     memory: vk_mem::Allocation,
@@ -89,8 +81,11 @@ pub(crate) struct BufferBase<T: BufferData> {
     _marker: PhantomData<T> // While this struct doesn't directly own a T, it still "contains" it (through the buffer)
 }
 
+
+
 pub(crate) struct VulkanBuffer<T: BufferData> {
     base: BufferBase<T>,
+    size: usize,
 }
 
 impl<T: BufferData> VulkanBuffer<T> {
@@ -121,39 +116,35 @@ impl<T: BufferData> VulkanBuffer<T> {
                 memory,
                 allocator,
                 _marker: PhantomData
-            }
+            },
+            size
         }
     }
+
+    pub(crate) fn handle(&self) -> vk::Buffer { self.base.handle }
+
+    pub(crate) fn size(&self) -> DeviceSize { self.size as _ }
 }
 
-impl<T: BufferData> VulkanBuffer<T> {
+impl<T: InlineBufferData> VulkanBuffer<T> {
     pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
         Self::new(usage, size_of::<T>(), allocator)
     }
 }
 
-impl<T: BufferData> BufferOps<T> for VulkanBuffer<T> {
-    fn base(&self) -> &BufferBase<T> { &self.base }
-    fn base_mut(&mut self) -> &mut BufferBase<T> { &mut self.base }
-}
-
 impl<T: BufferData> Drop for VulkanBuffer<T> {
     fn drop(&mut self) {
-        let allocator = self.base().allocator.clone();
+        let allocator = self.base.allocator.clone();
         unsafe {
-            allocator.destroy_buffer(self.handle(), &mut self.base_mut().memory);
+            allocator.destroy_buffer(self.handle(), &mut self.base.memory);
         }
     }
 }
 
 
-
-/// # Safety:
-/// To avoid UB caused by interior mutability, UnsafeCell<T> is used to store the pointer
-/// to the locally-mapped memory.
 pub(crate) struct LocalVulkanBuffer<T: InlineBufferData> {
     base: BufferBase<T>,
-    map: *mut UnsafeCell<T>,
+    map: NonNull<T>,
 }
 
 impl<T: InlineBufferData> LocalVulkanBuffer<T> {
@@ -194,9 +185,13 @@ impl<T: InlineBufferData> LocalVulkanBuffer<T> {
         }
     }
 
+    pub(crate) fn handle(&self) -> vk::Buffer { self.base.handle }
+
     pub(crate) fn buffer_data(&mut self) -> &mut T {
-        unsafe { &mut *(*self.map).get() }
+        unsafe { self.map.as_mut() }
     }
+
+    pub(crate) fn size(&self) -> DeviceSize { size_of::<T>() as _ }
 
     /// Call after writing to local memory
     pub(crate) fn flush(&mut self) {
@@ -213,17 +208,12 @@ impl<T: InlineBufferData> LocalVulkanBuffer<T> {
     }
 }
 
-impl<T: InlineBufferData> BufferOps<T> for LocalVulkanBuffer<T> {
-    fn base(&self) -> &BufferBase<T> { &self.base }
-    fn base_mut(&mut self) -> &mut BufferBase<T> { &mut self.base }
-}
-
 impl<T: InlineBufferData> Drop for LocalVulkanBuffer<T> {
     fn drop(&mut self) {
-        let allocator = self.base().allocator.clone();
+        let allocator = self.base.allocator.clone();
         unsafe {
-            allocator.unmap_memory(&mut self.base_mut().memory);
-            allocator.destroy_buffer(self.handle(), &mut self.base_mut().memory);
+            allocator.unmap_memory(&mut self.base.memory);
+            allocator.destroy_buffer(self.handle(), &mut self.base.memory);
         }
     }
 }

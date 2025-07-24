@@ -2,7 +2,7 @@ use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
 use crate::audio_engine::ray_tracer::{RayTracerConstants, RtOutputBufferData};
 use crate::audio_engine::{read_file_words, InstanceBufferData};
 use crate::util::{workgroup_div, AsBytes};
-use crate::vulkan::buffer::{BufferData, BufferOps, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
+use crate::vulkan::buffer::{BufferData, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;

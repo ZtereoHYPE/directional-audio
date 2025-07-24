@@ -5,7 +5,7 @@ use crate::audio_engine::ray_tracer::{RayTracer, RtDebugData};
 use crate::audio_engine::signal_processor::SignalProcessor;
 use crate::scene::source::{Frame, FRAME_SIZE};
 use crate::scene::Scene;
-use crate::vulkan::buffer::{BufferOps, InlineBufferData};
+use crate::vulkan::buffer::{InlineBufferData};
 use crate::vulkan::buffer_initializer::BufferInitializer;
 use ash::ext::debug_utils;
 use ash::vk::{ApplicationInfo, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};

@@ -1,7 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unused)]
 
-use crate::vulkan::buffer::{BufferData, BufferOps, VulkanBuffer};
+use crate::vulkan::buffer::{BufferData, VulkanBuffer};
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, DeviceSize, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
