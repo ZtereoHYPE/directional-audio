@@ -23,7 +23,7 @@ func _on_audio_listener_node_visualization_data_received(data: GodotVisualizatio
 	build_instances(data.instances);
 
 
-func build_instances(instances: PackedVector3Array):
+func build_instances(instances: PackedVector3Array) -> void:
 	multimesh.visible_instance_count = instances.size();
 	
 	for idx in range(instances.size()):

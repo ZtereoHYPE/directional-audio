@@ -1,0 +1,35 @@
+[gd_scene load_steps=8 format=3 uid="uid://d1bpalq4fv5n8"]
+
+[ext_resource type="Shader" uid="uid://bdkbe62dee0cs" path="res://assets/shaders/bubble.gdshader" id="1_37kl0"]
+[ext_resource type="Texture2D" uid="uid://j7e0th5uw06r" path="res://assets/noise.jpg" id="2_8uh7m"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_8uh7m"]
+render_priority = 0
+shader = ExtResource("1_37kl0")
+shader_parameter/heightmap = ExtResource("2_8uh7m")
+
+[sub_resource type="SphereMesh" id="SphereMesh_mf4mk"]
+material = SubResource("ShaderMaterial_8uh7m")
+radial_segments = 256
+rings = 128
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8uh7m"]
+
+[sub_resource type="Sky" id="Sky_6uqi0"]
+sky_material = SubResource("ProceduralSkyMaterial_8uh7m")
+
+[sub_resource type="Environment" id="Environment_ppyta"]
+background_mode = 2
+sky = SubResource("Sky_6uqi0")
+
+[node name="Node3D" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.454714, 0, 0, 0, 0.454714, 0, 0, 0, 0.454714, 0.0875767, -0.0411432, 0.18209)
+mesh = SubResource("SphereMesh_mf4mk")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_ppyta")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="WorldEnvironment"]
+transform = Transform3D(1, 0, 0, 0, -0.174164, 0.984717, 0, -0.984717, -0.174164, 0, 0.382008, 0.274528)
