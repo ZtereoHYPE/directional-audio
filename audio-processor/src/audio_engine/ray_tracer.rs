@@ -2,7 +2,6 @@
 
 use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
 use crate::audio_engine::ray_tracer::debug::DebugRayModule;
-use crate::audio_engine::ray_tracer::kmeans::KMeansModule;
 use crate::audio_engine::ray_tracer::rays::{RayBufferData, RayModule};
 use crate::audio_engine::{AudioInstance, InstanceBufferData};
 use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
@@ -19,7 +18,6 @@ use std::rc::Rc;
 use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
 use crate::audio_engine::ray_tracer::cluster::ClusterModule;
 
-pub(crate) mod kmeans;
 pub(crate) mod rays;
 pub(crate) mod cluster;
 mod debug;
@@ -68,9 +66,8 @@ pub(crate) struct RayTracer {
     fence: Fence,
 
     ray_module: RayModule,
-    kmeans_module: KMeansModule,
     pub cluster_module: ClusterModule,
-    debug_module: DebugRayModule,
+    pub debug_module: DebugRayModule,
 
     last_rt_pos: Vec3,
 }
@@ -161,16 +158,6 @@ impl RayTracer {
             constants
         );
 
-        let kmeans_module = KMeansModule::new(
-            buffer_allocator.clone(),
-            buffer_initializer,
-            device.clone(),
-            descriptor_pool,
-            &ray_module.output_buffer,
-            async_queue,
-            constants
-        );
-
         let cluster_module = ClusterModule::new(
             buffer_allocator.clone(),
             device.clone(),
@@ -178,10 +165,10 @@ impl RayTracer {
         );
 
         let debug_module = DebugRayModule::new(
+            buffer_allocator.clone(),
             device.clone(),
             descriptor_pool,
             &ray_module.sources_buffer,
-            &kmeans_module.instance_buffer,
             async_queue.0
         );
 
@@ -195,7 +182,6 @@ impl RayTracer {
             fence,
 
             ray_module,
-            kmeans_module,
             cluster_module,
             debug_module,
 
@@ -300,10 +286,6 @@ impl RayTracer {
             .expect("Failed to wait for fence!");
 
         self.last_rt_pos = rt_pos; // update it only once it's fully done
-    }
-
-    pub(super) fn instance_buffer(&self) -> &VulkanBuffer<InstanceBufferData> {
-        &self.kmeans_module.instance_buffer
     }
 
     pub(super) fn last_rt_pos(&self) -> Vec3 {
