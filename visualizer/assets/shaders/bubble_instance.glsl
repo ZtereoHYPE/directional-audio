@@ -6,16 +6,19 @@
 const ivec2 TEX_SIZE = ivec2(64, 32);
 
 // one x per instance
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 64) in;
 
 layout(binding = 0, std430) readonly restrict buffer AudioData {
     vec2 audioStrength; // Left and Right strength
-    vec3 instances[]; // todo: include other data
+    vec3 instances[]; // todo: include other instance data to influence visualzation?
 };
 
 // todo: look for a better format, we don't need all this precision do we
 layout(binding = 1, rgba32f) writeonly uniform image2D bubble_height;
 
+layout(binding = 2) readonly uniform Camera {
+    vec3 camera_position;
+};
 
 float get_intensity(vec3 direction) {
     float factor = direction.x * 0.5 + 0.5;
@@ -33,7 +36,7 @@ vec2 sphere_uv(vec3 direction) {
 void main() {
     vec3 instance = instances[gl_GlobalInvocationID.x];
 
-    vec3 direction = normalize(instance);
+    vec3 direction = normalize(instance - camera_position);
     float intensity = get_intensity(direction);
 
     vec2 uv_coords = sphere_uv(direction);

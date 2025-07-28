@@ -25,7 +25,7 @@ sky = SubResource("Sky_6uqi0")
 [node name="Node3D" type="Node3D"]
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(0.454714, 0, 0, 0, 0.454714, 0, 0, 0, 0.454714, 0.0875767, -0.0411432, 0.18209)
+transform = Transform3D(-0.255823, -0.372858, 0.0479164, -0.375924, 0.253737, -0.032608, 0, -0.0579592, -0.451005, 0.0875767, -0.0411432, 0.18209)
 mesh = SubResource("SphereMesh_mf4mk")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]

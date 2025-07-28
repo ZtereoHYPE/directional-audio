@@ -54,12 +54,6 @@ height = 1.8
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u6mdc"]
-shading_mode = 2
-albedo_color = Color(0.347155, 0.749055, 0.370706, 1)
-
-[sub_resource type="ImmediateMesh" id="ImmediateMesh_go5gf"]
-
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_jo7w2"]
 render_priority = 0
 shader = ExtResource("12_e6uwl")
@@ -73,6 +67,12 @@ shading_mode = 0
 [sub_resource type="QuadMesh" id="QuadMesh_jo7w2"]
 material = SubResource("StandardMaterial3D_e6uwl")
 size = Vector2(2, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u6mdc"]
+shading_mode = 2
+albedo_color = Color(0.347155, 0.749055, 0.370706, 1)
+
+[sub_resource type="ImmediateMesh" id="ImmediateMesh_go5gf"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_dhqrm"]
 
@@ -191,15 +191,15 @@ layout_mode = 2
 theme = ExtResource("1_icnq2")
 text = "Show Rays"
 
+[node name="Instance Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_icnq2")
+text = "Show Instances"
+
 [node name="Bubble Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
 layout_mode = 2
 theme = ExtResource("1_icnq2")
 text = "Show Bubble"
-
-[node name="Debug Panel Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-text = "Debug Panel"
 
 [node name="View panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
 layout_mode = 2
@@ -258,6 +258,7 @@ texture_filter = 1
 texture = ExtResource("2_s3eio")
 
 [node name="Player" type="CharacterBody3D" parent="3D Scene"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.273242, 0, 0)
 script = ExtResource("7_go5gf")
 input_left = "move_left"
 input_right = "move_right"
@@ -277,6 +278,15 @@ shape = SubResource("CapsuleShape3D_jo7w2")
 
 [node name="Head" type="Node3D" parent="3D Scene/Player"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
+
+[node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Player/Head"]
+mesh = SubResource("SphereMesh_u6mdc")
+skeleton = NodePath("../../../Global Visualizations")
+script = ExtResource("12_d2a62")
+
+[node name="TextureViewer" type="MeshInstance3D" parent="3D Scene/Player/Head/Bubble Visualizer"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0152998, 1.63816, -0.987133)
+mesh = SubResource("QuadMesh_jo7w2")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="3D Scene/Player/Head"]
 transform = Transform3D(-1.31134e-08, 0, 0.3, 0, 0.3, 0, -0.3, 0, -1.31134e-08, 0, 0.46891, -0.130028)
@@ -302,10 +312,10 @@ ROTATE_SPEED = 1.0
 ANCHOR_NODE_PATH = NodePath("..")
 metadata/_custom_type_script = "uid://bogt0ewoml0pc"
 
-[node name="Visualization" type="Node3D" parent="3D Scene"]
+[node name="Global Visualizations" type="Node3D" parent="3D Scene"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.93979, -2.68506, 11.3828)
 
-[node name="Ray Visualizer" type="MeshInstance3D" parent="3D Scene/Visualization"]
+[node name="Ray Visualizer" type="MeshInstance3D" parent="3D Scene/Global Visualizations"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.60112, 7.31321, 0)
 mesh = SubResource("ImmediateMesh_go5gf")
 script = ExtResource("10_qea6r")
@@ -315,21 +325,12 @@ color_map = Dictionary[float, Color]({
 3.0: Color(0.0732942, 0.667185, 1.92523e-07, 1)
 })
 
-[node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Visualization"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.87587, 4.5934, -8.86444)
-mesh = SubResource("SphereMesh_u6mdc")
-script = ExtResource("12_d2a62")
-
-[node name="TextureViewer" type="MeshInstance3D" parent="3D Scene/Visualization/Bubble Visualizer"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0153, 1.63816, 0)
-mesh = SubResource("QuadMesh_jo7w2")
-
-[node name="Instance Visualizer" type="MultiMeshInstance3D" parent="3D Scene/Visualization"]
+[node name="Instance Visualizer" type="MultiMeshInstance3D" parent="3D Scene/Global Visualizations"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -393.652, -51.3183, 0)
 multimesh = SubResource("MultiMesh_d2a62")
 script = ExtResource("12_dhqrm")
 
-[node name="Instance" type="MeshInstance3D" parent="3D Scene/Visualization/Instance Visualizer"]
+[node name="Instance" type="MeshInstance3D" parent="3D Scene/Global Visualizations/Instance Visualizer"]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, -44.5109, 15.0532, 0)
 mesh = SubResource("SphereMesh_d2a62")
 
@@ -338,6 +339,6 @@ mesh = SubResource("SphereMesh_d2a62")
 [connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause/PlayPauseButton" to="3D Scene/Player/Head/AudioListenerNode" method="set_play_state"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Orbiting Camera" method="_on_person_selector_item_selected"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Ray Visualizer" method="_on_audio_listener_node_visualization_data_received"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Bubble Visualizer" method="_on_audio_listener_node_visualization_data_received"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Visualization/Instance Visualizer" method="_on_audio_listener_node_visualization_data_received"]
+[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Player/Head/Bubble Visualizer" method="_on_audio_listener_node_visualization_data_received"]
+[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Global Visualizations/Ray Visualizer" method="_on_audio_listener_node_visualization_data_received"]
+[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Global Visualizations/Instance Visualizer" method="_on_audio_listener_node_visualization_data_received"]
