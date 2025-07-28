@@ -25,6 +25,7 @@ func build_ray_mesh(origin: Vector3, rays: PackedVector4Array) -> ImmediateMesh:
 	new_mesh.surface_begin(Mesh.PRIMITIVE_LINES, material);
 	
 	var index := 0;
+	var added_vertices := false;
 	while (index < rays.size() / BOUNCE_AMOUNT):
 		var vertices: Array[Vector4] = [];
 		var ray_index: int = index * 4;
@@ -52,8 +53,13 @@ func build_ray_mesh(origin: Vector3, rays: PackedVector4Array) -> ImmediateMesh:
 				new_mesh.surface_add_vertex(previous);
 				previous = Vector3(vtx.x, vtx.y, vtx.z);
 				new_mesh.surface_add_vertex(previous);
+				added_vertices = true;
 		 
 		index += 1;
 	
+	if !added_vertices:
+		new_mesh.surface_add_vertex(Vector3.ZERO)
+		new_mesh.surface_add_vertex(Vector3.ZERO) # workaround for empty surface crash
+		
 	new_mesh.surface_end();
 	return new_mesh;
