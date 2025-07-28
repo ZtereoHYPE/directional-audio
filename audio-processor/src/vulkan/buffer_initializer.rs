@@ -215,10 +215,10 @@ impl BufferInitializer {
     }
 
     // todo: remove this when proper pipelining is implemented
-    pub(crate) unsafe fn upload_instances(&mut self, device: &Device, queue: Queue, module: &mut ClusterModule, dst: &mut VulkanBuffer<InstanceBufferData>) {
+    pub(crate) unsafe fn onetime_action(&mut self, device: &Device, queue: Queue, mut action: impl FnMut(&mut CommandBuffer)) {
         self.begin_command(device);
-        
-        module.upload_to_buffer(&mut self.command_buffer, dst);
+
+        action(&mut self.command_buffer);
 
         self.end_command(device, queue);
     }

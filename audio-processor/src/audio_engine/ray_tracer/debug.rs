@@ -2,30 +2,38 @@ use crate::audio_engine::ray_tracer::rays::SourceBufferData;
 use crate::audio_engine::{read_file_words, InstanceBufferData};
 use crate::util::{workgroup_div, AsBytes};
 use crate::vulkan::buffer::{VulkanBuffer};
-use ash::vk::{AccessFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use glam::{Mat3, Mat3A, Vec3, Vec3A};
 use std::array::from_ref;
+use std::rc::Rc;
+use vk_mem::Allocator;
 
 pub(crate) const SPHERE_POINTS: usize = 1024;
 
-pub(super) struct DebugRayModule {
+pub(crate) struct DebugRayModule {
     device: Device,
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
     descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
+    pub instance_buffer: VulkanBuffer<InstanceBufferData>,
     queue: Queue
 }
 
 impl DebugRayModule {
     pub(super) fn new(
+        allocator: Rc<Allocator>,
         device: Device,
         descriptor_pool: DescriptorPool,
         sources_buffer: &VulkanBuffer<SourceBufferData>, // this is NOT the right buffer man
-        instance_buffer: &VulkanBuffer<InstanceBufferData>,
         queue: Queue
     ) -> Self {
+        let instance_buffer = VulkanBuffer::new_inline(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER,
+            allocator.clone()
+        );
+
         let (descriptor_set, descriptor_set_layout) = unsafe {
             let bindings = [
                 DescriptorSetLayoutBinding::default()
@@ -129,6 +137,7 @@ impl DebugRayModule {
             pipeline_layout,
             descriptor_set,
             descriptor_set_layout,
+            instance_buffer,
             queue,
         }
     }
@@ -154,7 +163,7 @@ impl DebugRayModule {
             self.pipeline_layout,
             ShaderStageFlags::COMPUTE,
             0,
-            Vec3A::from(origin).as_bytes()
+            origin.as_bytes()
         );
 
         self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);

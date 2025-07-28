@@ -180,23 +180,40 @@ impl AudioEngine {
     }}
 
     pub(crate) fn process_frames(&mut self, copy_debug_info: bool) -> (Frame, Frame, Option<RtDebugData>) { unsafe {
-        self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
-        let instance_amt = self.ray_tracer.cluster_rays();
+        // self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
+        // let instance_amt = self.ray_tracer.cluster_rays();
+        // self.buffer_initializer.onetime_action(
+        //     &self.device,
+        //     self.compute_queue,
+        //     |cmd| self.ray_tracer.cluster_module.upload_to_buffer(cmd, &mut self.signal_processor.instance_buffer)
+        // );
+
+        self.ray_tracer.copy_sources_debug(&self.scene);
+
+        self.buffer_initializer.onetime_action(
+            &self.device,
+            self.compute_queue,
+            |cmd| {
+                self.device.cmd_copy_buffer(
+                    *cmd,
+                    self.ray_tracer.debug_module.instance_buffer.handle(),
+                    self.signal_processor.instance_buffer.handle(),
+                    InstanceBufferData::region()
+                )
+            }
+        );
+
+        let instance_amt= self.scene.sources.len();
 
         println!("instance amount {}", instance_amt);
 
         let ray_debug_data = if copy_debug_info {
-            Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
+            // Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
+            None
         } else {
             None
         };
 
-        self.buffer_initializer.upload_instances(
-            &self.device,
-            self.compute_queue,
-            &mut self.ray_tracer.cluster_module,
-            &mut self.signal_processor.instance_buffer
-        );
 
         let (left, right) = self.signal_processor.process_frames(
             &self.scene.listener,
