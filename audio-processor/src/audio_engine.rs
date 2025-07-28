@@ -16,6 +16,8 @@ use std::array::from_ref;
 use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
 use std::{fs::File, path::Path};
+use std::mem::zeroed;
+use std::ptr::copy_nonoverlapping;
 
 pub(crate) mod signal_processor;
 pub(crate) mod gpu_constants;
@@ -178,40 +180,37 @@ impl AudioEngine {
     }}
 
     pub(crate) fn process_frames(&mut self, copy_debug_info: bool) -> (Frame, Frame, Option<RtDebugData>) { unsafe {
-            self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
-            // self.ray_tracer.copy_sources_debug(&self.scene);
+        self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
+        let instance_amt = self.ray_tracer.cluster_rays();
 
-            let ray_debug_data = if copy_debug_info {
-                Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
-            } else {
-                None
-            };
+        println!("instance amount {}", instance_amt);
 
-            let mut src_audio_instances = self.ray_tracer.instance_buffer().handle();
-            let mut dst_audio_instances = self.signal_processor.instance_buffer().handle();
+        let ray_debug_data = if copy_debug_info {
+            Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
+        } else {
+            None
+        };
 
-            self.buffer_initializer.copy_buffer(
-                &self.device,
-                self.compute_queue,
-                &mut src_audio_instances,
-                &mut dst_audio_instances,
-                size_of::<InstanceBufferData>() as DeviceSize
-            );
+        self.buffer_initializer.upload_instances(
+            &self.device,
+            self.compute_queue,
+            &mut self.ray_tracer.cluster_module,
+            &mut self.signal_processor.instance_buffer
+        );
 
-            let (left, right) = self.signal_processor.process_frames(
-                &self.scene.listener,
-                &mut self.scene.sources,
-                1, // todo: obtain this from ray tracing 
-                self.ray_tracer.last_rt_pos()
-            );
+        let (left, right) = self.signal_processor.process_frames(
+            &self.scene.listener,
+            &mut self.scene.sources,
+            instance_amt as u32,
+            self.ray_tracer.last_rt_pos()
+        );
 
-            (
-                gpu_to_frame(&left),
-                gpu_to_frame(&right),
-                ray_debug_data
-            )
-        }
-    }
+        (
+            gpu_to_frame(&left),
+            gpu_to_frame(&right),
+            ray_debug_data
+        )
+    }}
 
     pub(crate) fn update_listener(&mut self, new_location: Vec3, new_rotation: Mat3) {
         self.scene.listener.location = new_location;
@@ -232,6 +231,7 @@ impl Drop for AudioEngine {
     }
 }
 
+// todo: move all of these either to util or to some /vulkan module
 unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -320,5 +320,13 @@ impl InstanceBufferData {
         }
 
         instance
+    }
+
+    pub(crate) fn copy_instances(&mut self, instances: &Vec<AudioInstance>) {
+        assert!(instances.len() <= MAX_INSTANCES);
+
+        for (idx, val) in instances.iter().enumerate() {
+            self.instances[idx] = *val;
+        }
     }
 }

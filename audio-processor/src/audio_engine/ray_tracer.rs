@@ -4,7 +4,7 @@ use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
 use crate::audio_engine::ray_tracer::debug::DebugRayModule;
 use crate::audio_engine::ray_tracer::kmeans::KMeansModule;
 use crate::audio_engine::ray_tracer::rays::{RayBufferData, RayModule};
-use crate::audio_engine::InstanceBufferData;
+use crate::audio_engine::{AudioInstance, InstanceBufferData};
 use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
 use crate::scene::Scene;
 use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
@@ -17,9 +17,11 @@ use std::array::from_ref;
 use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::{Alloc, Allocator, AllocatorCreateInfo};
+use crate::audio_engine::ray_tracer::cluster::ClusterModule;
 
 pub(crate) mod kmeans;
 pub(crate) mod rays;
+pub(crate) mod cluster;
 mod debug;
 
 #[repr(C)]
@@ -55,7 +57,7 @@ impl RayTracerConstants {
 pub struct RtDebugData {
     pub origin: Vec3,
     pub rays: Box<RayBufferData>,
-    pub instances: Box<InstanceBufferData>
+    pub instances: Vec<AudioInstance>
 }
 
 pub(crate) struct RayTracer {
@@ -66,7 +68,8 @@ pub(crate) struct RayTracer {
     fence: Fence,
 
     ray_module: RayModule,
-    cluster_module: KMeansModule,
+    kmeans_module: KMeansModule,
+    pub cluster_module: ClusterModule,
     debug_module: DebugRayModule,
 
     last_rt_pos: Vec3,
@@ -158,7 +161,7 @@ impl RayTracer {
             constants
         );
 
-        let cluster_module = KMeansModule::new(
+        let kmeans_module = KMeansModule::new(
             buffer_allocator.clone(),
             buffer_initializer,
             device.clone(),
@@ -168,11 +171,17 @@ impl RayTracer {
             constants
         );
 
+        let cluster_module = ClusterModule::new(
+            buffer_allocator.clone(),
+            device.clone(),
+            &ray_module.output_buffer
+        );
+
         let debug_module = DebugRayModule::new(
             device.clone(),
             descriptor_pool,
             &ray_module.sources_buffer,
-            &cluster_module.instance_buffer,
+            &kmeans_module.instance_buffer,
             async_queue.0
         );
 
@@ -186,6 +195,7 @@ impl RayTracer {
             fence,
 
             ray_module,
+            kmeans_module,
             cluster_module,
             debug_module,
 
@@ -209,10 +219,15 @@ impl RayTracer {
         self.ray_module.stage_sources(&mut self.command_buffer, &scene.sources);
 
         // Trace the rays
-        let ray_buffer = self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, store_rays);
+        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, store_rays);
 
-        // Cluster the rays with kmeans
-        self.cluster_module.cluster_rays(&mut self.command_buffer, MAX_SOURCES as u32);
+        // Copy the result of shooting rays locally
+        if store_rays {
+            self.ray_module.copy_ray_buffer(&mut self.command_buffer);
+        }
+
+        // Copy the results of shooting rays to the cluster module
+        self.cluster_module.copy_rt_output(&mut self.command_buffer);
 
         // Submit the command buffer
         self.device.end_command_buffer(self.command_buffer)?;
@@ -230,35 +245,15 @@ impl RayTracer {
         Ok(())
     }
 
+    pub(super) unsafe fn cluster_rays(&mut self) -> usize {
+        self.cluster_module.cluster()
+    }
+
     pub(super) unsafe fn download_debug_data(&mut self) -> VkResult<RtDebugData> {
-        self.device.reset_fences(from_ref(&self.fence))?;
-
-        // Begin the command buffer
-        self.device.reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())?;
-
-        let begin_info = CommandBufferBeginInfo::default()
-            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-        self.device.begin_command_buffer(self.command_buffer, &begin_info)?;
-
-        self.ray_module.copy_ray_buffer(&mut self.command_buffer);
-        self.cluster_module.copy_instance_buffer(&mut self.command_buffer);
-
-        // Submit the command buffer
-        self.device.end_command_buffer(self.command_buffer)?;
-
-        let submit_info = SubmitInfo::default()
-            .command_buffers(from_ref(&self.command_buffer));
-
-        self.device.queue_submit(self.async_queue.0, &[submit_info], self.fence)?;
-
-        // Wait for it to execute
-        self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
-
         Ok(RtDebugData {
             origin: self.last_rt_pos,
             rays: self.ray_module.local_ray_buffer.buffer_data().to_local_copy(),
-            instances: self.cluster_module.local_instance_buffer.buffer_data().to_local_copy()
+            instances: self.cluster_module.get_clusters_debug().clone()
         })
     }
 
@@ -308,7 +303,7 @@ impl RayTracer {
     }
 
     pub(super) fn instance_buffer(&self) -> &VulkanBuffer<InstanceBufferData> {
-        &self.cluster_module.instance_buffer
+        &self.kmeans_module.instance_buffer
     }
 
     pub(super) fn last_rt_pos(&self) -> Vec3 {
@@ -318,11 +313,13 @@ impl RayTracer {
 
 /// Ray Tracing output buffer
 #[repr(align(16))]
+#[derive(Clone)]
 pub(crate) struct Output {
     direction: Vec3,
-    total_distance: f32,
+    additional_distance: f32,
     bounces: u32,
     source: u32,
+    found_source: bool,
 }
 
 pub(crate) struct RtOutputBufferData {

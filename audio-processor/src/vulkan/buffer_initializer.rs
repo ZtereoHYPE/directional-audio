@@ -6,6 +6,8 @@ use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsage
 use ash::{Device, Instance};
 use std::array::from_ref;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
+use crate::audio_engine::InstanceBufferData;
+use crate::audio_engine::ray_tracer::cluster::ClusterModule;
 
 pub(crate) enum InitMode<T: BufferData> {
     Zeroed,
@@ -213,12 +215,10 @@ impl BufferInitializer {
     }
 
     // todo: remove this when proper pipelining is implemented
-    pub(crate) unsafe fn copy_buffer(&mut self, device: &Device, queue: Queue, src: &mut Buffer, dst: &mut Buffer, size: DeviceSize) {
+    pub(crate) unsafe fn upload_instances(&mut self, device: &Device, queue: Queue, module: &mut ClusterModule, dst: &mut VulkanBuffer<InstanceBufferData>) {
         self.begin_command(device);
         
-        let region = BufferCopy::default().size(size);
-        
-        device.cmd_copy_buffer(self.command_buffer, *src, *dst, from_ref(&region));
+        module.upload_to_buffer(&mut self.command_buffer, dst);
 
         self.end_command(device, queue);
     }

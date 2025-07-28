@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+approx_dbscan = { path = "../approx_dbscan_rs" }
 ash = "0.38.0"
 bytemuck = "1.23.1"
 glam = { version = "0.30.4", features = ["bytemuck"] }
@@ -12,4 +13,4 @@ sofar = "0.2.1"
 vk-mem = "0.4.0"
 
 [profile.dev]
-opt-level = 0
+opt-level = 3
