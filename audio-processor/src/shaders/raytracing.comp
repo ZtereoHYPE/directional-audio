@@ -47,7 +47,7 @@ struct BvhNode {
 
 struct Output {
     vec3 location;
-    float total_distance;
+    float additional_distance;
     uint bounces;
     uint source;
     bool found_source;
@@ -222,7 +222,7 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
     vec3 source = sources[source_idx];
 
     Output result;
-    result.total_distance = 0;
+    result.additional_distance = 0;
     result.bounces = 0;
     result.source = source_idx;
     result.found_source = false;
@@ -238,7 +238,6 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
         // If we can reach the source, we're done!
         if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
             result.found_source = true;
-            result.total_distance += length(src_direction);
             store_ray(point_idx, source_idx, bounce, source, 2);
             break;
 
@@ -260,7 +259,7 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
         }
 
         // Increment the output's values
-        result.total_distance += length(main_ray.origin - mesh_hit.pos);
+        result.additional_distance += length(main_ray.origin - mesh_hit.pos);
         result.bounces++;
 
         // Else, keep bouncing (using perfect reflections)
@@ -269,6 +268,10 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
     }
 
     return result;
+}
+
+void create_ray_path(Ray ray) {
+
 }
 
 void main() {
@@ -283,6 +286,7 @@ void main() {
     Output result = shoot_ray(main_ray, point_idx, source_idx);
 
     // store the result
+    // todo: find a way for these to be condensed and store the total
     outputs[source_idx * POINT_AMOUNT + point_idx] = result;
 }
 

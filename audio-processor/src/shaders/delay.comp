@@ -19,9 +19,9 @@ const uint INITIAL_OFFSET = -(WINDOW_SIZE - FRAME_SIZE) + DELAY_BUFFER_SIZE; // 
 
 layout(push_constant, std430) uniform Camera {
     mat3 rotation;
-    vec3 camera_delta;
+    vec3 position;
     uint frame_idx;
-};
+} camera;
 
 layout(binding = 0, std430) restrict buffer AudioInstances {
     Instance instances[];
@@ -38,7 +38,7 @@ layout(binding = 2, std430) writeonly restrict buffer FftInput {
 
 uint delayed_index(float dist, uint instance_idx) {
     // if there's no delay, we can start at: initial offset shifted ahead by how many frames have passed
-    uint zero_delay_start_idx = frame_idx * FRAME_SIZE + INITIAL_OFFSET; // no % DELAY_BUFFER_SIZE because it's handled later
+    uint zero_delay_start_idx = camera.frame_idx * FRAME_SIZE + INITIAL_OFFSET; // no % DELAY_BUFFER_SIZE because it's handled later
     float delay = dist / SOUND_SPEED;
 
     uint samples_delay = uint(delay / (float(FRAME_SIZE) / SAMPLING_RATE));
@@ -54,16 +54,18 @@ uint delayed_index(float dist, uint instance_idx) {
 // height of dispatch is given by instance count
 void main() {
     Instance instance = instances[gl_GlobalInvocationID.y];
-    vec3 corrected_dir = rotation * (instance.direction - camera_delta);
-    float corrected_dist = instance.dist - length(instance.direction) + length(corrected_dir);
+    vec3 relative_position = instance.position - camera.position;
+    vec3 direction = camera.rotation * relative_position;
+    float total_dist = length(relative_position) + instance.additional_dist;
 
-    // If we are the first invocation for an instance, save it for the
+    // todo: this whole projection should probably not happen here, but in HRTF
+    //  it would also allow the instances to be readonly (performance win)
+    // If we are the first invocation for an instance, save it for the hrtf
     if (gl_GlobalInvocationID.x == 0) {
-        instances[gl_GlobalInvocationID.y].direction = corrected_dir;
-        instances[gl_GlobalInvocationID.y].dist = corrected_dist;
+        instances[gl_GlobalInvocationID.y].position = direction;
     }
 
-    uint sample_idx = delayed_index(corrected_dist, instance.index);
+    uint sample_idx = delayed_index(total_dist, instance.index);
     uint fft_idx = gl_GlobalInvocationID.y * WINDOW_SIZE + gl_GlobalInvocationID.x;
     fft_input[fft_idx] = samples[sample_idx];
 }

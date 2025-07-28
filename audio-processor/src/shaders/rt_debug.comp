@@ -25,7 +25,7 @@ void main() {
     vec3 source = sources[source_idx];
 
     vec3 translated = source - camera.origin;
-    instances[source_idx].direction = translated;
-    instances[source_idx].dist = length(translated);
+    instances[source_idx].position = translated;
+    instances[source_idx].additional_dist = 0;
     instances[source_idx].index = source_idx;
 }

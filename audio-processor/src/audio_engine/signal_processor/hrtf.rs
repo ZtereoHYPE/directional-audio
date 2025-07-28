@@ -13,6 +13,7 @@ use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::{Alloc, Allocator};
 
+// todo: rename to DspModule because it performs more than just HRTF (attenuation)
 pub struct HrtfModule {
     device: Device,
     pipeline: Pipeline,

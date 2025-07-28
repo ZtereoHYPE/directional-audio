@@ -81,7 +81,7 @@ pub(crate) struct BufferBase<T: BufferData> {
     _marker: PhantomData<T> // While this struct doesn't directly own a T, it still "contains" it (through the buffer)
 }
 
-
+// todo: potential for AsRef to a buffer base for what needs it?
 
 pub(crate) struct VulkanBuffer<T: BufferData> {
     base: BufferBase<T>,

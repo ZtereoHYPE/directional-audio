@@ -17,7 +17,7 @@ pub struct GodotVisualizationData {
 impl GodotVisualizationData {
     pub fn set_data(&mut self, data: DebugData) {
         let ray_hits = data.rt.rays.rays.map(|ray| Vector4::new(ray.x, ray.y, ray.z, ray.w));
-        let instance_locations: Vec<Vector3> = data.rt.instances.instances
+        let instance_locations: Vec<Vector3> = data.rt.instances
             .iter()
             .map(|i| Vector3::new(i.direction.x, i.direction.y, i.direction.z))
             .collect();

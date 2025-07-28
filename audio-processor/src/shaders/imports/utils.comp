@@ -3,7 +3,7 @@ const float M_PI_HALF = radians(90);
 const float M_SQRT1_2 = 1.0 / sqrt(2.0);
 
 struct Instance {
-    vec3 direction;
-    float dist; // in meters
+    vec3 position;
+    float additional_dist; // in meters
     uint index;
 };

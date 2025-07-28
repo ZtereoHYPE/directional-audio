@@ -67,7 +67,7 @@ pub struct SignalProcessor {
     compute_command_buffer: CommandBuffer,
     transfer_command_buffer: CommandBuffer,
 
-    instance_buffer: VulkanBuffer<InstanceBufferData>,
+    pub instance_buffer: VulkanBuffer<InstanceBufferData>,
 
     delay_module: DelayModule,
     fft_module: FftModule,
@@ -277,10 +277,6 @@ impl SignalProcessor {
             GpuFrame::try_from(&left[start..end]).unwrap(),
             GpuFrame::try_from(&right[start..end]).unwrap(),
         )
-    }
-
-    pub(super) fn instance_buffer(&self) -> &VulkanBuffer<InstanceBufferData> {
-        &self.instance_buffer
     }
 }
 

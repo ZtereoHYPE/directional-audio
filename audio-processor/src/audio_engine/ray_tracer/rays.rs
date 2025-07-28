@@ -52,7 +52,7 @@ impl RayModule {
         );
 
         let ray_buffer = VulkanBuffer::new_inline(
-            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER,
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST,
             allocator.clone()
         );
 
@@ -79,7 +79,7 @@ impl RayModule {
         }
         
         let output_buffer = VulkanBuffer::new_inline(
-            BufferUsageFlags::STORAGE_BUFFER,
+            BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_SRC,
             allocator.clone()
         );
 
