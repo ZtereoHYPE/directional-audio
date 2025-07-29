@@ -238,6 +238,9 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
         // If we can reach the source, we're done!
         if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
             result.found_source = true;
+            if (bounce == 0)
+                result.location = source;
+
             store_ray(point_idx, source_idx, bounce, source, 2);
             break;
 
@@ -249,7 +252,7 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
         // Advance the ray
         HitRecord mesh_hit = hit_meshes(main_ray);
         if (!mesh_hit.did_hit)
-        break;
+            break;
 
         store_ray(point_idx, source_idx, bounce, mesh_hit.pos, 1);
 
