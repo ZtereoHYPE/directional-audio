@@ -3,15 +3,17 @@ extends MeshInstance3D
 # update the uniforms directly when receiving new data (?)
 # else save here the 2 data needed
 
-const INSTANCE_AMOUNT := 64;
-const BUFFER_SIZE := 8 + 16 * INSTANCE_AMOUNT;
+const MAX_INSTANCE_AMOUNT := 64;
+const BUFFER_SIZE := 8 + 16 * MAX_INSTANCE_AMOUNT;
 
 const TEXTURE_WIDTH := 64;
 const TEXTURE_HEIGHT := 32;
 
+var instance_amount := 0;
+
 var rd: RenderingDevice;
 var instance_buffer: RID;
-var camera_buffer: RID;
+var scene_buffer: RID;
 var main_texture: RID;
 var compute_texture: RID;
 var descriptor_set: RID;
@@ -28,7 +30,7 @@ func _ready() -> void:
 	
 	# Create descriptors
 	instance_buffer = rd.storage_buffer_create(BUFFER_SIZE);
-	camera_buffer = rd.uniform_buffer_create(16);
+	scene_buffer = rd.uniform_buffer_create(16);
 	
 	var fmt := RDTextureFormat.new()
 	fmt.width = TEXTURE_WIDTH
@@ -60,12 +62,12 @@ func _ready() -> void:
 	texture_uniform.binding = 1;
 	texture_uniform.add_id(compute_texture)
 	
-	var camera_uniform := RDUniform.new()
-	camera_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER;
-	camera_uniform.binding = 2;
-	camera_uniform.add_id(camera_buffer)
+	var scene_uniform := RDUniform.new()
+	scene_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER;
+	scene_uniform.binding = 2;
+	scene_uniform.add_id(scene_buffer)
 	
-	descriptor_set = rd.uniform_set_create([buffer_uniform, texture_uniform, camera_uniform], shader, 0);
+	descriptor_set = rd.uniform_set_create([buffer_uniform, texture_uniform, scene_uniform], shader, 0);
 	
 	# Create a compute pipeline
 	pipeline = rd.compute_pipeline_create(shader);
@@ -84,18 +86,22 @@ func _process(delta: float) -> void:
 	global_rotation = Vector3(0, 0, 0);
 	global_position = Vector3(0, 2, 0);
 	
-	# Update camera uniform
-	var camera_position := PackedVector3Array([$"..".global_position]);
-	rd.buffer_update(camera_buffer, 0, 12, camera_position.to_byte_array());
+	# Update scene uniform
+	var byte_array := PackedByteArray();
+	byte_array.append_array(PackedVector3Array([($".." as Node3D).global_position]).to_byte_array())
+	byte_array.append(instance_amount);
+	rd.buffer_update(scene_buffer, 0, 16, byte_array);
 	
 	# Render the texture once again
 	rd.texture_clear(compute_texture, Color(0.5, 0.5, 0.5), 0, 1, 0, 1); # temporary, the ripple will handle clearing (?)
-	var compute_list := rd.compute_list_begin();
-	rd.compute_list_bind_compute_pipeline(compute_list, pipeline);
-	rd.compute_list_bind_uniform_set(compute_list, descriptor_set, 0);
-	@warning_ignore("integer_division")
-	rd.compute_list_dispatch(compute_list, INSTANCE_AMOUNT / 64, 1, 1);
-	rd.compute_list_end();
+	
+	if instance_amount != 0:
+		var compute_list := rd.compute_list_begin();
+		rd.compute_list_bind_compute_pipeline(compute_list, pipeline);
+		rd.compute_list_bind_uniform_set(compute_list, descriptor_set, 0);
+		@warning_ignore("integer_division")
+		rd.compute_list_dispatch(compute_list, (instance_amount + 63) / 64, 1, 1);
+		rd.compute_list_end();
 	
 	rd.submit();
 	rd.sync();
@@ -103,17 +109,20 @@ func _process(delta: float) -> void:
 
 func _exit_tree() -> void:
 	rd.free_rid(instance_buffer);
-	rd.free_rid(camera_buffer);
+	rd.free_rid(scene_buffer);
 	rd.free_rid(compute_texture);
 	rd.free_rid(descriptor_set);
 	rd.free_rid(pipeline);
 
 
 func update_visualization_data(instances: PackedVector3Array, volumes: Vector2) -> void:
-	rd.buffer_update(instance_buffer, 0, 8, PackedVector2Array([volumes]).to_byte_array());
-	rd.buffer_update(instance_buffer, 8, BUFFER_SIZE - 8, instances.to_byte_array());
+	instance_amount = instances.size();
 	
+	var instance_bytes := instances.to_byte_array();
+	rd.buffer_update(instance_buffer, 8, instance_bytes.size(), instance_bytes);
+	
+	rd.buffer_update(instance_buffer, 0, 8, PackedVector2Array([volumes]).to_byte_array());
+
 
 func _on_audio_listener_node_visualization_data_received(data: GodotVisualizationData) -> void:
 	update_visualization_data.call_deferred(data.instances, Vector2.ONE);
-	pass;

@@ -16,8 +16,9 @@ layout(binding = 0, std430) readonly restrict buffer AudioData {
 // todo: look for a better format, we don't need all this precision do we
 layout(binding = 1, rgba32f) writeonly uniform image2D bubble_height;
 
-layout(binding = 2) readonly uniform Camera {
+layout(binding = 2) readonly uniform Scene {
     vec3 camera_position;
+    uint instance_amount;
 };
 
 float get_intensity(vec3 direction) {
@@ -34,6 +35,9 @@ vec2 sphere_uv(vec3 direction) {
 
 
 void main() {
+    if (gl_GlobalInvocationID.x > instance_amount)
+        return;
+
     vec3 instance = instances[gl_GlobalInvocationID.x];
 
     vec3 direction = normalize(instance - camera_position);

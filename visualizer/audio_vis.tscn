@@ -247,7 +247,7 @@ mesh = SubResource("ArrayMesh_6fmou")
 skeleton = NodePath("../../..")
 
 [node name="AudioSourceNode" type="AudioSourceNode" parent="3D Scene"]
-audio_file = "uid://b4imkxkoekk5e"
+audio_file = "uid://chh4xvc6nafqi"
 loop_audio = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.84842, -6.59833)
 
@@ -337,6 +337,7 @@ mesh = SubResource("SphereMesh_d2a62")
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Label" method="_on_h_slider_value_changed"]
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="3D Scene/Player/Head/AudioListenerNode" method="on_volume_change"]
 [connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause/PlayPauseButton" to="3D Scene/Player/Head/AudioListenerNode" method="set_play_state"]
+[connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer/Rays Checkbox" to="3D Scene/Global Visualizations/Ray Visualizer" method="_on_rays_checkbox_toggled"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
 [connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Orbiting Camera" method="_on_person_selector_item_selected"]
 [connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Player/Head/Bubble Visualizer" method="_on_audio_listener_node_visualization_data_received"]
