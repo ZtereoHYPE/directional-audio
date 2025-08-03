@@ -1,5 +1,3 @@
-use crate::audio_engine::ray_tracer::rays::SourceBufferData;
-use crate::audio_engine::{read_file_words, InstanceBufferData};
 use crate::util::{workgroup_div, AsBytes};
 use crate::vulkan::buffer::{VulkanBuffer};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
@@ -8,8 +6,9 @@ use glam::{Mat3, Mat3A, Vec3, Vec3A};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
-
-pub(crate) const SPHERE_POINTS: usize = 1024;
+use crate::audio_engine::InstanceBufferData;
+use crate::audio_engine::rays::SourceBufferData;
+use crate::vulkan::misc::read_spirv_words;
 
 pub(crate) struct DebugRayModule {
     device: Device,
@@ -106,7 +105,7 @@ impl DebugRayModule {
                 .create_pipeline_layout(&layout_info, None)
                 .expect("Failed to create pipeline layout");
 
-            let code_words = read_file_words("target/shaders/rt_debug.comp.spv");
+            let code_words = read_spirv_words("target/shaders/rt_debug.comp.spv");
 
             let shader_module_info = ShaderModuleCreateInfo::default()
                 .code(&code_words[..]);

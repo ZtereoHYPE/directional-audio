@@ -1,17 +1,8 @@
-[gd_scene load_steps=8 format=3 uid="uid://d1bpalq4fv5n8"]
+[gd_scene load_steps=6 format=3 uid="uid://d1bpalq4fv5n8"]
 
-[ext_resource type="Shader" uid="uid://bdkbe62dee0cs" path="res://assets/shaders/bubble.gdshader" id="1_37kl0"]
-[ext_resource type="Texture2D" uid="uid://j7e0th5uw06r" path="res://assets/noise.jpg" id="2_8uh7m"]
+[ext_resource type="Script" uid="uid://b2dga4ojqmusd" path="res://assets/scripts/bubble_visualizer.gd" id="3_6uqi0"]
 
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_8uh7m"]
-render_priority = 0
-shader = ExtResource("1_37kl0")
-shader_parameter/heightmap = ExtResource("2_8uh7m")
-
-[sub_resource type="SphereMesh" id="SphereMesh_mf4mk"]
-material = SubResource("ShaderMaterial_8uh7m")
-radial_segments = 256
-rings = 128
+[sub_resource type="BoxMesh" id="BoxMesh_37kl0"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8uh7m"]
 
@@ -25,11 +16,15 @@ sky = SubResource("Sky_6uqi0")
 [node name="Node3D" type="Node3D"]
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(-0.255823, -0.372858, 0.0479164, -0.375924, 0.253737, -0.032608, 0, -0.0579592, -0.451005, 0.0875767, -0.0411432, 0.18209)
-mesh = SubResource("SphereMesh_mf4mk")
+transform = Transform3D(0.10848, -0.437983, 0.0562856, -0.441584, -0.107595, 0.0138272, 8.94822e-10, -0.0579592, -0.451005, -0.0577594, 0.613157, 0.0596969)
+mesh = SubResource("BoxMesh_37kl0")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_ppyta")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="WorldEnvironment"]
 transform = Transform3D(1, 0, 0, 0, -0.174164, 0.984717, 0, -0.984717, -0.174164, 0, 0.382008, 0.274528)
+
+[node name="Box-sphere" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0955763, 5.96046e-08, 0.819064)
+script = ExtResource("3_6uqi0")

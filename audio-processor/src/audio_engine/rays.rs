@@ -1,6 +1,4 @@
 use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
-use crate::audio_engine::ray_tracer::{RayTracerConstants, RtOutputBufferData};
-use crate::audio_engine::read_file_words;
 use crate::scene::mesh::bvh::BvhBufferData;
 use crate::scene::mesh::TriangleBufferData;
 use crate::scene::source::AudioSource;
@@ -14,6 +12,8 @@ use glam::{Vec3, Vec3A, Vec4};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
+use crate::audio_engine::{RayTracerConstants, RtOutputBufferData};
+use crate::vulkan::misc::read_spirv_words;
 
 pub(super) struct RayModule {
     device: Device,
@@ -197,7 +197,7 @@ impl RayModule {
                 .create_pipeline_layout(&layout_info, None)
                 .expect("Failed to create pipeline layout");
 
-            let code_words = read_file_words("target/shaders/raytracing.comp.spv");
+            let code_words = read_spirv_words("target/shaders/raytracing.comp.spv");
 
             let shader_module_info = ShaderModuleCreateInfo::default()
                 .code(&code_words[..]);

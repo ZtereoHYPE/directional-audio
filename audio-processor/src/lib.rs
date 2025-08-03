@@ -6,8 +6,6 @@ pub mod scene;
 pub mod util;
 mod vulkan;
 
-use crate::audio_engine::ray_tracer::RtDebugData;
-use crate::audio_engine::AudioEngine;
 use crate::scene::source::Frame;
 use crate::scene::Scene;
 use glam::{Mat3, Vec3};
@@ -16,14 +14,18 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+use crate::audio_engine::{AudioEngine, AudioInstance};
+use crate::audio_engine::rays::RayBufferData;
 
-pub struct DebugData {
-    pub rt: RtDebugData
+pub struct VisualizationData {
+    pub last_rt_origin: Vec3,
+    pub rays: Box<RayBufferData>,
+    pub instances: Vec<AudioInstance>
 }
 
 enum EngineAction {
     Terminate,
-    RequestDebugData,
+    RequestVisData,
     Pause,
     Play
 }
@@ -36,7 +38,7 @@ struct StateUpdates {
 pub struct AudioEngineMonitor {
     state: Arc<Mutex<StateUpdates>>,
     frame_rx: Receiver<(Frame, Frame)>,
-    debug_rx: Receiver<DebugData>,
+    debug_rx: Receiver<VisualizationData>,
     action_tx: Sender<EngineAction>,
     vulkan_thread: JoinHandle<()>
 }
@@ -94,14 +96,14 @@ impl AudioEngineMonitor {
     }
 
     pub fn request_debug(&self) {
-        self.action_tx.send(EngineAction::RequestDebugData).unwrap();
+        self.action_tx.send(EngineAction::RequestVisData).unwrap();
     }
 
     pub fn get_frames(&self, max: usize) -> Vec<(Frame, Frame)> {
         self.frame_rx.try_iter().take(max).collect()
     }
 
-    pub fn get_debug_data(&self) -> Option<DebugData> {
+    pub fn get_debug_data(&self) -> Option<VisualizationData> {
         self.debug_rx.try_recv().ok()
     }
 
@@ -116,7 +118,7 @@ impl AudioEngineMonitor {
         mut engine: AudioEngine,
         scene_state: Arc<Mutex<StateUpdates>>,
         frame_tx: SyncSender<(Frame, Frame)>,
-        debug_tx: Sender<DebugData>,
+        debug_tx: Sender<VisualizationData>,
         action_rx: Receiver<EngineAction>
     ) {
         loop {
@@ -124,7 +126,7 @@ impl AudioEngineMonitor {
             match action_rx.try_recv() {
                 Ok(EngineAction::Terminate)                         => break,
                 Ok(EngineAction::Pause)                             => Self::park_vulkan_thread(&action_rx),
-                Ok(EngineAction::RequestDebugData)                  => debug_data = true,
+                Ok(EngineAction::RequestVisData)                  => debug_data = true,
                 Err(TryRecvError::Empty) | Ok(EngineAction::Play)   => {},
                 Err(e)                                  => println!("Error receiving message: {}", e)
             }
@@ -144,10 +146,10 @@ impl AudioEngineMonitor {
             }
 
             // in the future: have a "request" system that only updates once a (rendered) frame using queues
-            let (left, right, debug) = engine.process_frames(debug_data);
+            let (left, right, debug) = engine.get_next_frames(debug_data);
 
             if let Some(vis_data) = debug {
-                debug_tx.send(DebugData { rt: vis_data });
+                debug_tx.send(vis_data);
             }
 
             frame_tx.send((left, right));

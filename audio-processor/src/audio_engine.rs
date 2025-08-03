@@ -1,14 +1,12 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 
 use crate::audio_engine::gpu_constants::{MAX_INSTANCES, SLIDING_WINDOW_FRAME_AMT};
-use crate::audio_engine::ray_tracer::{RayTracer, RtDebugData};
-use crate::audio_engine::signal_processor::SignalProcessor;
-use crate::scene::source::{Frame, FRAME_SIZE};
+use crate::scene::source::{AudioSource, Frame, FRAME_SIZE};
 use crate::scene::Scene;
-use crate::vulkan::buffer::{InlineBufferData};
-use crate::vulkan::buffer_initializer::BufferInitializer;
+use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
+use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::ext::debug_utils;
-use ash::vk::{ApplicationInfo, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue};
+use ash::vk::{ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceCreateInfo, DeviceQueueCreateInfo, DeviceSize, Fence, FenceCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, Queue, SpecializationMapEntry, SubmitInfo};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
 use bytemuck::Zeroable;
 use glam::{Mat3, Vec2, Vec3};
@@ -16,18 +14,103 @@ use std::array::from_ref;
 use std::borrow::Cow;
 use std::ffi::{c_char, CStr};
 use std::{fs::File, path::Path};
-use std::mem::zeroed;
+use std::f32::consts::PI;
+use std::mem::{transmute, zeroed};
 use std::ptr::copy_nonoverlapping;
+use std::rc::Rc;
+use ash::prelude::VkResult;
+use vk_mem::{Allocator, AllocatorCreateInfo};
+use crate::audio_engine::cluster::ClusterModule;
+use crate::audio_engine::debug::{DebugRayModule};
+use crate::audio_engine::delay::DelayModule;
+use crate::audio_engine::fft::FftModule;
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES, SPHERE_POINTS};
+use crate::audio_engine::hrtf::HrtfModule;
+use crate::audio_engine::rays::{RayBufferData, RayModule};
+use crate::audio_engine::transfer::{DownloadBufferData, TransferModule};
+use crate::scene::listener::AudioListener;
+use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
+use crate::VisualizationData;
+use crate::vulkan::misc::debug_callback;
 
-pub(crate) mod signal_processor;
 pub(crate) mod gpu_constants;
-pub(crate) mod ray_tracer;
+pub mod rays;
+mod debug;
+mod cluster;
+mod transfer;
+mod delay;
+mod hrtf;
+pub(crate) mod fft;
 
 /// Represents a single audio frame on the GPU, containing complex values to enable FFT
 pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 
 /// Represents the window used for partitioned convolution
 pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
+
+// todo: figure out where to put these
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct RayTracerConstants {
+    point_amount: u32,
+    source_amount: u32,
+    max_bvh_depth: u32,
+    max_bounces: u32,
+}
+
+impl RayTracerConstants {
+    const SIZE: usize = size_of::<RayTracerConstants>();
+
+    /// warning: this assumes that all fields are 4 in size
+    fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
+        entries
+            .into_iter()
+            .map(|&idx| SpecializationMapEntry::default()
+                .constant_id(idx)
+                .offset(4 * idx)
+                .size(4)
+            )
+            .collect()
+    }
+
+    unsafe fn to_slice(&self) -> &[u8; Self::SIZE] {
+        transmute(self)
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct SignalProcessorConstants {
+    window_size: u32,
+    frame_size: u32,
+    filter_size: u32,
+    delay_buffer_size: u32,
+    pipelined_frames: u32,
+    sampling_rate: f32,
+    min_elevation: f32,
+    max_elevation: f32
+}
+
+impl SignalProcessorConstants {
+    const SIZE: usize = size_of::<SignalProcessorConstants>();
+
+    // warning: this assumes that all fields are 4 in size
+    fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
+        entries
+            .into_iter()
+            .map(|&idx| SpecializationMapEntry::default()
+                .constant_id(idx)
+                .offset(4 * idx)
+                .size(4)
+            )
+            .collect()
+    }
+
+    unsafe fn to_slice(&self) -> &[u8; Self::SIZE] {
+        transmute(self)
+    }
+}
+
 
 pub struct AudioEngine {
     scene: Scene,
@@ -37,12 +120,26 @@ pub struct AudioEngine {
     debug_callback: DebugUtilsMessengerEXT,
     gpu: PhysicalDevice,
     device: Device,
-
-    compute_queue: Queue,
-
+    
     buffer_initializer: BufferInitializer,
-    signal_processor: SignalProcessor,
-    ray_tracer: RayTracer,
+    buffer_allocator: Rc<Allocator>,
+
+    queue: (Queue, u32),
+
+    delay_module: DelayModule,
+    fft_module: FftModule,
+    hrtf_module: HrtfModule,
+    transfer_module: TransferModule,
+    ray_module: RayModule,
+    cluster_module: ClusterModule,
+    debug_module: DebugRayModule,
+
+    last_rt_pos: Vec3,
+    frame_counter: usize,
+    instance_buffer: VulkanBuffer<InstanceBufferData>,
+
+    command_buffer: CommandBuffer,
+    fence: Fence
 }
 
 impl AudioEngine {
@@ -92,7 +189,7 @@ impl AudioEngine {
 
         // todo: better logic for selecting device and queue(s)
         // igpu detection could happen here to better adapt things
-        let (gpu, queue_family_index, device) = {
+        let (gpu, compute_queue_idx, device) = {
             let gpus = instance
                 .enumerate_physical_devices()
                 .expect("Failed to enumerate physical devices");
@@ -137,32 +234,166 @@ impl AudioEngine {
         };
 
         // todo: better detection and selection of the various queues
-        let compute_queue = device.get_device_queue(queue_family_index, 0);
+        let compute_queue = device.get_device_queue(compute_queue_idx, 0);
 
         let mut buffer_initializer = BufferInitializer::new(
             &instance,
             &device,
             &gpu,
-            queue_family_index
+            compute_queue_idx
         );
 
-        let signal_processor = SignalProcessor::new(
-            &scene,
-            &instance,
-            &gpu,
-            device.clone(),
-            (compute_queue, queue_family_index),
-            (compute_queue, queue_family_index),
-            &mut buffer_initializer,
+        let buffer_allocator = unsafe {
+            let allocator_create_info = AllocatorCreateInfo::new(
+                &instance,
+                &device,
+                gpu
+            );
+
+            Rc::new(
+                Allocator::new(allocator_create_info)
+                    .expect("Failed to create memory allocator")
+            )
+        };
+
+        let command_pool = unsafe {
+            let mut pool_create_info = CommandPoolCreateInfo::default()
+                .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                .queue_family_index(compute_queue_idx);
+
+            device
+                .create_command_pool(&pool_create_info, None)
+                .expect("Failed to create command pool")
+        };
+
+        let command_buffer = unsafe {
+            let mut command_buffer_info = CommandBufferAllocateInfo::default()
+                .command_pool(command_pool)
+                .command_buffer_count(1)
+                .level(CommandBufferLevel::PRIMARY);
+
+            device
+                .allocate_command_buffers(&command_buffer_info)
+                .expect("Failed to allocate command buffers")[0]
+        };
+
+        let descriptor_pool = unsafe {
+            let pool_sizes = [
+                DescriptorPoolSize::default()
+                    .ty(DescriptorType::UNIFORM_BUFFER)
+                    .descriptor_count(4 + 4),
+                DescriptorPoolSize::default()
+                    .ty(DescriptorType::STORAGE_BUFFER)
+                    .descriptor_count(11),
+                DescriptorPoolSize::default()
+                    .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .descriptor_count(2),
+            ];
+
+            let pool_info = DescriptorPoolCreateInfo::default()
+                .max_sets(32)
+                .pool_sizes(&pool_sizes);
+
+            device
+                .create_descriptor_pool(&pool_info, None)
+                .expect("Failed to create descriptor pool")
+        };
+
+        let mut instance_buffer = VulkanBuffer::new_inline(
+            BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST,
+            buffer_allocator.clone()
         );
 
-        let ray_tracer = RayTracer::new(
-            &scene,
-            &instance,
-            &gpu,
-            device.clone(),
-            (compute_queue, queue_family_index),
+        // Pre-populate the instance buffer until the first RT data comes in
+        let mut data = Box::new(InstanceBufferData::from_scene_data(&scene));
+        buffer_initializer.init_buffer(&mut instance_buffer, InitMode::Populated(data), (compute_queue, compute_queue_idx), &device);
+
+        let fence = unsafe {
+            device
+                .create_fence(&FenceCreateInfo::default(), None)
+                .expect("failed to create fence")
+        };
+
+        let rt_constants = RayTracerConstants {
+            point_amount: SPHERE_POINTS as u32,
+            source_amount: MAX_SOURCES as u32,
+            max_bvh_depth: MAX_BVH_DEPTH as u32,
+            max_bounces: 4,
+        };
+
+        let dsp_constants = SignalProcessorConstants {
+            window_size: GPU_WINDOW_SIZE as u32,
+            frame_size: FRAME_SIZE as u32,
+            filter_size: GPU_WINDOW_SIZE as u32,
+            delay_buffer_size: (MAX_DELAY_FRAMES * FRAME_SIZE) as u32,
+            pipelined_frames: 0, // todo: do not hardcode these
+            sampling_rate: 44100.0,
+            min_elevation: PI,
+            max_elevation: 0.0
+        };
+
+        let fft_module = FftModule::new(
+            buffer_allocator.clone(),
             &mut buffer_initializer,
+            device.clone(),
+            (compute_queue, compute_queue_idx),
+            descriptor_pool,
+            dsp_constants
+        );
+
+        let delay_module = DelayModule::new(
+            buffer_allocator.clone(),
+            &mut buffer_initializer,
+            device.clone(),
+            (compute_queue, compute_queue_idx),
+            descriptor_pool,
+            &instance_buffer,
+            fft_module.starting_buffer(),
+            dsp_constants,
+        );
+
+        let hrtf_module = HrtfModule::new(
+            scene.listener.filter.clone(),
+            buffer_allocator.clone(),
+            &mut buffer_initializer,
+            device.clone(),
+            (compute_queue, compute_queue_idx),
+            descriptor_pool,
+            &instance_buffer,
+            fft_module.starting_buffer(), // todo: this is hardcoded for the size
+            dsp_constants
+        );
+
+        let transfer_module = TransferModule::new(
+            buffer_allocator.clone(),
+            device.clone(),
+            (compute_queue, compute_queue_idx),
+            &delay_module.delay_buffer,
+            &hrtf_module.output_buffer
+        );
+
+        let ray_module = RayModule::new(
+            buffer_allocator.clone(),
+            &mut buffer_initializer,
+            device.clone(),
+            descriptor_pool,
+            (compute_queue, compute_queue_idx),
+            &scene,
+            rt_constants
+        );
+
+        let cluster_module = ClusterModule::new(
+            buffer_allocator.clone(),
+            device.clone(),
+            &ray_module.output_buffer
+        );
+
+        let debug_module = DebugRayModule::new(
+            buffer_allocator.clone(),
+            device.clone(),
+            descriptor_pool,
+            &ray_module.sources_buffer,
+            compute_queue
         );
 
         Self {
@@ -172,48 +403,65 @@ impl AudioEngine {
             debug_callback,
             gpu,
             device,
-            compute_queue,
+            queue: (compute_queue, compute_queue_idx),
+            delay_module,
+            fft_module,
+            hrtf_module,
+            transfer_module,
+            ray_module,
+            cluster_module,
             buffer_initializer,
-            signal_processor,
-            ray_tracer,
+            buffer_allocator,
+            debug_module,
+            last_rt_pos: Vec3::ZERO,
+            frame_counter: 0,
+            instance_buffer,
+            command_buffer,
+            fence
         }
     }}
 
-    pub(crate) fn process_frames(&mut self, copy_debug_info: bool) -> (Frame, Frame, Option<RtDebugData>) { unsafe {
-        // self.ray_tracer.trace_rays(&self.scene, copy_debug_info);
-        // let instance_amt = self.ray_tracer.cluster_rays();
-        // self.buffer_initializer.onetime_action(
-        //     &self.device,
-        //     self.compute_queue,
-        //     |cmd| self.ray_tracer.cluster_module.upload_to_buffer(cmd, &mut self.signal_processor.instance_buffer)
-        // );
-
-        let instance_amt = self.scene.sources.len();
-        self.ray_tracer.copy_sources_debug(&self.scene);
+    pub(crate) fn get_next_frames(&mut self, copy_debug_info: bool) -> (Frame, Frame, Option<VisualizationData>) { unsafe {
+        self.trace_rays(copy_debug_info);
+        let instance_amt = self.cluster_module.cluster();
         self.buffer_initializer.onetime_action(
             &self.device,
-            self.compute_queue,
-            |cmd| {
-                self.device.cmd_copy_buffer(
-                    *cmd,
-                    self.ray_tracer.debug_module.instance_buffer.handle(),
-                    self.signal_processor.instance_buffer.handle(),
-                    InstanceBufferData::region()
-                )
-            }
+            self.queue.0,
+            |cmd| self.cluster_module.upload_to_buffer(cmd, &mut self.instance_buffer)
         );
 
-        let ray_debug_data = if copy_debug_info {
-            let mut debug_data = self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data");
+        let instance_amt = self.scene.sources.len();
+        self.copy_sources_debug();
+        // todo: have 2 instance buffers
+        // self.buffer_initializer.onetime_action(
+        //     &self.device,
+        //     self.queue.0,
+        //     |cmd| {
+        //         self.device.cmd_copy_buffer(
+        //             *cmd,
+        //             self.debug_module.instance_buffer.handle(),
+        //             self.instance_buffer.handle(),
+        //             InstanceBufferData::region()
+        //         )
+        //     }
+        // );
 
-            debug_data.instances = self.scene.sources
-                .iter()
-                .map(|s| AudioInstance {
-                    direction: s.coordinates,
-                    distance: 0.0,
-                    index: 0,
-                })
-                .collect();
+        let ray_debug_data = if copy_debug_info {
+            let mut debug_data = VisualizationData {
+                last_rt_origin: self.last_rt_pos,
+                rays: self.ray_module.local_ray_buffer.buffer_data().to_local_copy(),
+                instances: self.cluster_module.get_clusters_debug().clone()
+            };
+
+
+            // debug_data.instances = self.scene.sources
+            //     .iter()
+            //     .map(|s| AudioInstance {
+            //         direction: s.coordinates,
+            //         distance: 0.0,
+            //         index: 0,
+            //     })
+            //     .collect();
 
             Some(debug_data)
         } else {
@@ -221,12 +469,7 @@ impl AudioEngine {
         };
 
 
-        let (left, right) = self.signal_processor.process_frames(
-            &self.scene.listener,
-            &mut self.scene.sources,
-            instance_amt as u32,
-            self.ray_tracer.last_rt_pos()
-        );
+        let (left, right) = self.process_frames(instance_amt as u32);
 
         (
             gpu_to_frame(&left),
@@ -234,6 +477,131 @@ impl AudioEngine {
             ray_debug_data
         )
     }}
+
+    // from signal processor
+    pub unsafe fn process_frames(&mut self, instance_amt: u32) -> (GpuFrame, GpuFrame) {
+        // transfer data to right buffer
+        self.transfer_module
+            .upload_new_frames(&mut self.command_buffer, &mut self.scene.sources, self.frame_counter)
+            .expect("Failed to upload frames to the GPU!");
+
+        // move the delayed windows to the fft buffer
+        let camera_delta = self.scene.listener.location - self.last_rt_pos;
+        self.delay_module.apply_delay(&mut self.command_buffer, self.frame_counter, camera_delta, self.scene.listener.rotation, MAX_SOURCES);
+
+        // perform fourier transform
+        self.fft_module.gpu_fourier_transform(&mut self.command_buffer, 0, false, MAX_SOURCES);
+
+        // wipe the output buffer
+        self.hrtf_module.wipe_output(&mut self.command_buffer);
+
+        // perform HRTF dsp
+        self.hrtf_module.apply_hrtf(&mut self.command_buffer, instance_amt);
+
+        // transfer data back
+        let (left_window, right_window) = self.transfer_module
+            .download_windows(&mut self.command_buffer)
+            .expect("Failed to download frames from GPU!");
+
+        self.frame_counter += 1;
+
+        let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
+        let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
+        let (start, end) = DownloadBufferData::last_frame_range();
+
+        (
+            GpuFrame::try_from(&left[start..end]).unwrap(),
+            GpuFrame::try_from(&right[start..end]).unwrap(),
+        )
+    }
+
+    // from ray tracer
+    pub(super) unsafe fn trace_rays(&mut self, store_rays: bool) -> VkResult<()> {
+        let last_rt_pos = self.scene.listener.location;
+        self.device.reset_fences(from_ref(&self.fence))?;
+
+        // Begin the command buffer
+        self.device.reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())?;
+
+        let begin_info = CommandBufferBeginInfo::default()
+            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        self.device.begin_command_buffer(self.command_buffer, &begin_info)?;
+
+        // Stage the sources
+        self.ray_module.stage_sources(&mut self.command_buffer, &self.scene.sources);
+
+        // Trace the rays
+        self.ray_module.shoot_rays(&mut self.command_buffer, MAX_SOURCES as u32, last_rt_pos, store_rays);
+
+        // Copy the result of shooting rays locally
+        if store_rays {
+            self.ray_module.copy_ray_buffer(&mut self.command_buffer);
+        }
+
+        // Copy the results of shooting rays to the cluster module
+        self.cluster_module.copy_rt_output(&mut self.command_buffer);
+
+        // Submit the command buffer
+        self.device.end_command_buffer(self.command_buffer)?;
+
+        let submit_info = SubmitInfo::default()
+            .command_buffers(from_ref(&self.command_buffer));
+
+        self.device.queue_submit(self.queue.0, &[submit_info], self.fence)?;
+
+        // Wait for it to execute
+        self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
+
+        self.last_rt_pos = last_rt_pos; // update it only once it's fully done
+
+        Ok(())
+    }
+
+    pub(super) unsafe fn copy_sources_debug(&mut self) {
+        let rt_pos = self.scene.listener.location;
+
+        self.device
+            .reset_fences(from_ref(&self.fence))
+            .expect("Failed to reset raytracer fence!");
+
+        // Begin the command buffer
+        self.device
+            .reset_command_buffer(self.command_buffer, CommandBufferResetFlags::empty())
+            .expect("Failed to reset command buffer");
+
+        let begin_info = CommandBufferBeginInfo::default()
+            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        self.device
+            .begin_command_buffer(self.command_buffer, &begin_info)
+            .expect("Failed to begin command buffer recording");
+
+        // Stage the new coordinates
+        self.ray_module.stage_sources(&mut self.command_buffer, &self.scene.sources);
+
+        // Trace the rays
+        self.debug_module.copy_sources(&mut self.command_buffer, MAX_SOURCES as u32, rt_pos);
+
+        // Submit the command buffer
+        self.device
+            .end_command_buffer(self.command_buffer)
+            .expect("Failed to end command buffer!");
+
+        let submit_info = SubmitInfo::default()
+            .command_buffers(from_ref(&self.command_buffer));
+
+        self.device
+            .queue_submit(self.queue.0, &[submit_info], self.fence)
+            .expect("Failed to submit command buffer");
+
+        // Wait for it to execute
+        self.device
+            .wait_for_fences(from_ref(&self.fence), true, u64::MAX)
+            .expect("Failed to wait for fence!");
+
+        self.last_rt_pos = rt_pos; // update it only once it's fully done
+    }
 
     pub(crate) fn update_listener(&mut self, new_location: Vec3, new_rotation: Mat3) {
         self.scene.listener.location = new_location;
@@ -252,44 +620,6 @@ impl Drop for AudioEngine {
         // todo: Cleanup!
 
     }
-}
-
-// todo: move all of these either to util or to some /vulkan module
-unsafe extern "system" fn debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
-    _user_data: *mut std::os::raw::c_void,
-) -> vk::Bool32 { unsafe {
-    let callback_data = *p_callback_data;
-    let message_id_number = callback_data.message_id_number;
-
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-    };
-
-    let message = if callback_data.p_message.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message).to_string_lossy()
-    };
-
-    println!(
-        "{message_severity:?}:\n{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n",
-    );
-
-    vk::FALSE
-}}
-
-// Util function for submodules
-fn read_file_words(path: impl AsRef<Path>) -> Vec<u32> {
-    let path = path.as_ref();
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
-    let mut file = File::open(&path).unwrap();
-
-    ash::util::read_spv(&mut file).unwrap()
 }
 
 pub(crate) fn frame_to_gpu(frame: &Frame) -> GpuFrame {
@@ -313,6 +643,11 @@ pub(crate) fn gpu_to_frame(input: &GpuFrame) -> Frame {
     frame
 }
 
+pub(crate) unsafe fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> {
+    // transmute the pointer without performing a copy; arrays in rust are guaranteed to be sequential
+    let flat_window = transmute::<Box<GpuWindow>, Box<[Vec2; GPU_WINDOW_SIZE]>>(window);
+    (flat_window as Box<[_]>).into_vec() // turn the box into a vector
+}
 
 #[repr(align(16))]
 #[derive(Copy, Clone, Zeroable)]
@@ -353,3 +688,21 @@ impl InstanceBufferData {
         }
     }
 }
+
+
+/// Ray Tracing output buffer
+#[repr(align(16))]
+#[derive(Clone)]
+pub(crate) struct Output {
+    direction: Vec3,
+    additional_distance: f32,
+    bounces: u32,
+    source: u32,
+    found_source: bool,
+}
+
+pub(crate) struct RtOutputBufferData {
+    outputs: [Output; MAX_SOURCES * SPHERE_POINTS]
+}
+
+impl InlineBufferData for RtOutputBufferData {}

@@ -7,7 +7,6 @@ use ash::{Device, Instance};
 use std::array::from_ref;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
 use crate::audio_engine::InstanceBufferData;
-use crate::audio_engine::ray_tracer::cluster::ClusterModule;
 
 pub(crate) enum InitMode<T: BufferData> {
     Zeroed,

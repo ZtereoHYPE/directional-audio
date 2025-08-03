@@ -10,11 +10,9 @@ use glam::{dvec3, vec3, DVec2, DVec3, Vec3};
 use vk_mem::Allocator;
 use approx_dbscan::approximate_dbscan;
 use approx_dbscan::clusterable::{Clusterable, Point};
-use crate::audio_engine::{AudioInstance, InstanceBufferData};
-use crate::audio_engine::gpu_constants::{MAX_INSTANCES, MAX_SOURCES};
-use crate::audio_engine::ray_tracer::{Output, RtOutputBufferData};
-use crate::audio_engine::ray_tracer::cluster::ClusterModulePhase::{Clear, ClusteredData, LocalRtData};
-use crate::audio_engine::ray_tracer::debug::SPHERE_POINTS;
+use crate::audio_engine::{AudioInstance, InstanceBufferData, RtOutputBufferData};
+use crate::audio_engine::cluster::ClusterModulePhase::{Clear, ClusteredData, LocalRtData};
+use crate::audio_engine::gpu_constants::{MAX_INSTANCES, MAX_SOURCES, SPHERE_POINTS};
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 
 enum ClusterModulePhase {

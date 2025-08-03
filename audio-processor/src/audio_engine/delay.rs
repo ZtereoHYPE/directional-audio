@@ -1,7 +1,5 @@
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
-use crate::audio_engine::signal_processor::fft::FftBufferData;
-use crate::audio_engine::signal_processor::SignalProcessorConstants;
-use crate::audio_engine::{read_file_words, InstanceBufferData};
+use crate::audio_engine::{InstanceBufferData, SignalProcessorConstants};
 use crate::scene::source::FRAME_SIZE;
 use crate::util::AsBytes;
 use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
@@ -12,6 +10,8 @@ use glam::{Mat3, Mat3A, Vec2, Vec3};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
+use crate::audio_engine::fft::FftBufferData;
+use crate::vulkan::misc::read_spirv_words;
 
 pub(crate) struct DelayModule {
     device: Device,
@@ -134,7 +134,7 @@ impl DelayModule {
                 .create_pipeline_layout(&layout_info, None)
                 .expect("Failed to create pipeline layout");
 
-            let code_words = read_file_words("target/shaders/delay.comp.spv");
+            let code_words = read_spirv_words("target/shaders/delay.comp.spv");
 
             let shader_module_info = ShaderModuleCreateInfo::default()
                 .code(&code_words[..]);
@@ -178,7 +178,7 @@ impl DelayModule {
         }
     }
 
-    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: u32, camera_delta: Vec3, camera_rotation: Mat3, instance_amt: usize) {
+    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: usize, camera_delta: Vec3, camera_rotation: Mat3, instance_amt: usize) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -196,7 +196,7 @@ impl DelayModule {
 
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(camera_rotation).as_bytes());
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, camera_delta.as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 60, frame_counter.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 60, (frame_counter as u32).as_bytes());
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt as u32);
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);

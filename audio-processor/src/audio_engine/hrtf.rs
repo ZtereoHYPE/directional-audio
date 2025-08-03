@@ -1,8 +1,4 @@
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
-use crate::audio_engine::signal_processor::fft::FftBufferData;
-use crate::audio_engine::signal_processor::transfer::DownloadBufferData;
-use crate::audio_engine::signal_processor::SignalProcessorConstants;
-use crate::audio_engine::{read_file_words, GpuWindow, InstanceBufferData};
 use crate::scene::listener::hrtf_filter::HrtfFilter;
 use crate::util::{workgroup_div, AsBytes};
 use crate::vulkan::buffer::{VulkanBuffer};
@@ -12,6 +8,10 @@ use ash::Device;
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::{Alloc, Allocator};
+use crate::audio_engine::fft::FftBufferData;
+use crate::audio_engine::{GpuWindow, InstanceBufferData, SignalProcessorConstants};
+use crate::audio_engine::transfer::DownloadBufferData;
+use crate::vulkan::misc::read_spirv_words;
 
 // todo: rename to DspModule because it performs more than just HRTF (attenuation)
 pub struct HrtfModule {
@@ -285,7 +285,7 @@ impl HrtfModule {
                 .create_pipeline_layout(&layout_info, None)
                 .expect("Failed to create pipeline layout");
 
-            let code_words = read_file_words("target/shaders/hrtf.comp.spv");
+            let code_words = read_spirv_words("target/shaders/hrtf.comp.spv");
 
             let shader_module_info = ShaderModuleCreateInfo::default()
                 .code(&code_words[..]);

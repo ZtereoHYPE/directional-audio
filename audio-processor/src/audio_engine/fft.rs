@@ -1,6 +1,4 @@
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
-use crate::audio_engine::signal_processor::SignalProcessorConstants;
-use crate::audio_engine::{read_file_words, GpuWindow};
 use crate::util::{complex, AsBytes};
 use crate::util::complex::root_of_unity;
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
@@ -13,6 +11,8 @@ use std::f32::consts::PI;
 use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::Allocator;
+use crate::audio_engine::{GpuWindow, SignalProcessorConstants};
+use crate::vulkan::misc::read_spirv_words;
 
 pub(crate) const RADIX_AMT: usize = 3;
 pub(crate) const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
@@ -69,9 +69,9 @@ impl FftModule {
         device: Device,
         queue: (Queue, u32),
         descriptor_pool: DescriptorPool,
-        stages: Vec<FftStage>,
         constants: SignalProcessorConstants
     ) -> Self {
+        let stages = Self::fft_stages(GPU_WINDOW_SIZE);
         let fft_buffer_0 = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
@@ -150,7 +150,7 @@ impl FftModule {
                 .expect("Failed to create pipeline layout");
 
             // The SPIR-V is the same for all pipelines
-            let code_words = read_file_words("target/shaders/fft.comp.spv");
+            let code_words = read_spirv_words("target/shaders/fft.comp.spv");
 
             let shader_module_info = ShaderModuleCreateInfo::default()
                 .code(&code_words[..]);

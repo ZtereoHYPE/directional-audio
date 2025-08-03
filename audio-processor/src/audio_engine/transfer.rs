@@ -1,5 +1,4 @@
 use crate::audio_engine::gpu_constants::{MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
-use crate::audio_engine::signal_processor::delay::DelayBufferData;
 use crate::audio_engine::{GpuFrame, GpuWindow};
 use crate::scene::source::{AudioSource, FRAME_SIZE};
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
@@ -11,6 +10,7 @@ use std::array::from_ref;
 use std::error::Error;
 use std::rc::Rc;
 use vk_mem::Allocator;
+use crate::audio_engine::delay::DelayBufferData;
 
 pub struct TransferModule {
     allocator: Rc<Allocator>,
