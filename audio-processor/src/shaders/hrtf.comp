@@ -112,8 +112,9 @@ void main() {
     vec2 right_hrtf = decode_polar_filter(texture(hrtfRight, hrtf_tex_coord).xyz);
     
     vec2 Xk = vec2(samples[sample_idx + fft_offset]);
-//    float frequency = float(idx) / WINDOW_SIZE * SAMPLING_RATE;
+//    float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
 //    Xk *= attenuation(frequency, dist);
+//    Xk *= attenuation(frequency, 4000.0);
 
     vec2 attenuated_left = complex_mult(Xk, left_hrtf);
     vec2 attenuated_right = complex_mult(Xk, right_hrtf);

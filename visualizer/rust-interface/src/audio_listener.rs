@@ -62,7 +62,7 @@ impl INode3D for AudioListenerNode {
             hrtf_filter: GString::from(""),
             export_audio: false,
             max_frames_ahead: 5,
-            volume: 0.75,
+            volume: 0.0, // todo: reset to 0.75
             accumulated_samples: vec![],
             allowed_samples: 5.0,
             last_position: Vector3::ZERO,

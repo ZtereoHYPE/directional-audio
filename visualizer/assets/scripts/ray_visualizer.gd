@@ -8,13 +8,16 @@ var color_map: Dictionary[float, Color] = {
 	2.0: Color(0, 0.3, 0.9),
 }
 
+var enabled := false;
+
 func _ready() -> void:
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;
 	global_position = Vector3.ZERO;
 
 
 func _on_audio_listener_node_visualization_data_received(data: GodotVisualizationData) -> void:
-	mesh = build_ray_mesh(data.ray_origin, data.rays);
+	if enabled:
+		mesh = build_ray_mesh(data.ray_origin, data.rays);
 
 
 func build_ray_mesh(origin: Vector3, rays: PackedVector4Array) -> ImmediateMesh:
@@ -63,3 +66,9 @@ func build_ray_mesh(origin: Vector3, rays: PackedVector4Array) -> ImmediateMesh:
 		
 	new_mesh.surface_end();
 	return new_mesh;
+
+
+func _on_rays_checkbox_toggled(toggled_on: bool) -> void:
+	enabled = toggled_on;
+	if !enabled:
+		mesh = ArrayMesh.new()

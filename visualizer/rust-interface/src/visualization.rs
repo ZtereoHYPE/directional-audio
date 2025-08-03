@@ -10,20 +10,20 @@ pub struct GodotVisualizationData {
     #[var]
     rays: PackedVector4Array,
     #[var]
-    instances: PackedVector3Array // for now they're just coordinates, might get upgraded later
+    instances: PackedVector4Array // for now they're just coordinates, might get upgraded later
 }
 
 // todo: there are a LOT of copies going on, find a way to avoid them as much as possible
 impl GodotVisualizationData {
     pub fn set_data(&mut self, data: DebugData) {
         let ray_hits = data.rt.rays.rays.map(|ray| Vector4::new(ray.x, ray.y, ray.z, ray.w));
-        let instance_locations: Vec<Vector3> = data.rt.instances
+        let instance_locations = data.rt.instances
             .iter()
-            .map(|i| Vector3::new(i.direction.x, i.direction.y, i.direction.z))
-            .collect();
+            .map(|i| Vector4::new(i.direction.x, i.direction.y, i.direction.z, 0.0))
+            .collect::<Vec<Vector4>>();
 
         self.ray_origin = Vector3::new(data.rt.origin.x, data.rt.origin.y, data.rt.origin.z);
         self.rays = PackedVector4Array::from(ray_hits);
-        self.instances = PackedVector3Array::from(instance_locations);
+        self.instances = PackedVector4Array::from(instance_locations);
     }
 }

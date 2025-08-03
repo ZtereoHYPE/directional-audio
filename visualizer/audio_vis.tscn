@@ -1,4 +1,4 @@
-[gd_scene load_steps=33 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=28 format=4 uid="uid://u8slr1sr2sxb"]
 
 [ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_icnq2"]
 [ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://assets/scripts/slider_label.gd" id="2_a6ww5"]
@@ -8,11 +8,10 @@
 [ext_resource type="Script" uid="uid://bogt0ewoml0pc" path="res://addons/orbit_camera/orbit_camera.gd" id="6_lx530"]
 [ext_resource type="Script" uid="uid://8d5i3x7net1n" path="res://assets/scripts/orbitater.gd" id="6_viom0"]
 [ext_resource type="Script" uid="uid://b8n4t5ovhdibx" path="res://addons/proto_controller/proto_controller.gd" id="7_go5gf"]
-[ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/arrow.obj" id="8_dhqrm"]
+[ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/objects/arrow.obj" id="8_dhqrm"]
 [ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://assets/scripts/ray_visualizer.gd" id="10_qea6r"]
 [ext_resource type="Script" uid="uid://b2dga4ojqmusd" path="res://assets/scripts/bubble_visualizer.gd" id="12_d2a62"]
 [ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://assets/scripts/instance_visualizer.gd" id="12_dhqrm"]
-[ext_resource type="Shader" uid="uid://bdkbe62dee0cs" path="res://assets/shaders/bubble.gdshader" id="12_e6uwl"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_a6ww5"]
 
@@ -53,20 +52,6 @@ height = 1.8
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_jo7w2"]
 radius = 0.4
 height = 1.8
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_jo7w2"]
-render_priority = 0
-shader = ExtResource("12_e6uwl")
-
-[sub_resource type="SphereMesh" id="SphereMesh_u6mdc"]
-material = SubResource("ShaderMaterial_jo7w2")
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_e6uwl"]
-shading_mode = 0
-
-[sub_resource type="QuadMesh" id="QuadMesh_jo7w2"]
-material = SubResource("StandardMaterial3D_e6uwl")
-size = Vector2(2, 1)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u6mdc"]
 shading_mode = 2
@@ -258,7 +243,7 @@ texture_filter = 1
 texture = ExtResource("2_s3eio")
 
 [node name="Player" type="CharacterBody3D" parent="3D Scene"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.273242, 0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.273242, 0, 1.49796)
 script = ExtResource("7_go5gf")
 input_left = "move_left"
 input_right = "move_right"
@@ -280,15 +265,10 @@ shape = SubResource("CapsuleShape3D_jo7w2")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
 
 [node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Player/Head"]
-mesh = SubResource("SphereMesh_u6mdc")
 skeleton = NodePath("../../../Global Visualizations")
 script = ExtResource("12_d2a62")
 
-[node name="TextureViewer" type="MeshInstance3D" parent="3D Scene/Player/Head/Bubble Visualizer"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0152998, 1.63816, -0.987133)
-mesh = SubResource("QuadMesh_jo7w2")
-
-[node name="MeshInstance3D" type="MeshInstance3D" parent="3D Scene/Player/Head"]
+[node name="arrow" type="MeshInstance3D" parent="3D Scene/Player/Head"]
 transform = Transform3D(-1.31134e-08, 0, 0.3, 0, 0.3, 0, -0.3, 0, -1.31134e-08, 0, 0.46891, -0.130028)
 material_override = SubResource("StandardMaterial3D_u6mdc")
 cast_shadow = 0
@@ -301,7 +281,7 @@ hrtf_filter = "res://assets/audio/HRIR_FULL2DEG.sofa"
 export_audio = true
 
 [node name="Orbiting Camera" type="Node3D" parent="3D Scene"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.46017, 3.66763, 11.192)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5021, 4.51067, 1.60457)
 script = ExtResource("6_viom0")
 
 [node name="OrbitCamera" type="Camera3D" parent="3D Scene/Orbiting Camera"]
