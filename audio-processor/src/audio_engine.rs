@@ -188,8 +188,8 @@ impl AudioEngine {
         //     |cmd| self.ray_tracer.cluster_module.upload_to_buffer(cmd, &mut self.signal_processor.instance_buffer)
         // );
 
+        let instance_amt = self.scene.sources.len();
         self.ray_tracer.copy_sources_debug(&self.scene);
-
         self.buffer_initializer.onetime_action(
             &self.device,
             self.compute_queue,
@@ -203,13 +203,19 @@ impl AudioEngine {
             }
         );
 
-        let instance_amt= self.scene.sources.len();
-
-        println!("instance amount {}", instance_amt);
-
         let ray_debug_data = if copy_debug_info {
-            // Some(self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data"))
-            None
+            let mut debug_data = self.ray_tracer.download_debug_data().expect("Failed to copy raytracing debug data");
+
+            debug_data.instances = self.scene.sources
+                .iter()
+                .map(|s| AudioInstance {
+                    direction: s.coordinates,
+                    distance: 0.0,
+                    index: 0,
+                })
+                .collect();
+
+            Some(debug_data)
         } else {
             None
         };

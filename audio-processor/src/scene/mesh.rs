@@ -12,7 +12,6 @@ pub struct Triangle {
 }
 
 impl Triangle {
-
     pub(crate) fn min_bound(&self) -> Vec3 {
         Vec3A::min(Vec3A::min(self.vertices[0], self.vertices[1]), self.vertices[2]).into()
     }

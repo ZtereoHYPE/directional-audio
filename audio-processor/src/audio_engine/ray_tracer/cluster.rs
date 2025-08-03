@@ -102,15 +102,17 @@ impl ClusterModule {
 
         let initial_time = Instant::now();
 
-        let buffer_data = self.local_rt_output_buffer.buffer_data();
+        let buffer_data = self.local_rt_output_buffer.buffer_data().to_local_copy();
 
+        let copy_time = Instant::now();
+
+        // todo: optimize by turning into a for loop perhaps? Map to a smaller thing than AudioInstance (we don't need the index)
         // Split the different sources' hits, filtering to only the ones that reached the source
         let source_clusters = buffer_data.outputs
             .as_chunks_unchecked::<SPHERE_POINTS>() // split the various sources
             .iter()
             .map(|chunk|
-                chunk.clone()
-                    .into_iter()
+                chunk.iter()
                     .filter(|ray| ray.found_source) // filter each chunk to only valid outputs
                     .map(|o| AudioInstance {
                         direction: o.direction,
@@ -122,6 +124,7 @@ impl ClusterModule {
             .enumerate()
             .filter(|(_, src)| !src.is_empty()) // remove empty sources
             .map(|(idx, src)| (idx, approximate_dbscan(src, 2.5, 0.1, 3))) // cluster them
+            // .map(|(idx, src)| (idx, src.into_iter().map(|i| vec![i]).collect::<Vec<_>>())) // cluster them
             .collect::<Vec<_>>();
 
         let cluster_time = Instant::now();
@@ -129,13 +132,6 @@ impl ClusterModule {
         // todo: this is very easily parallelizable
         let mut total_instances = vec![];
         for (source_idx, source) in source_clusters {
-            #[derive(Zeroable)]
-            struct InstanceData {
-                direction: DVec3,
-                distance: f64,
-                cluster_size: usize,
-            }
-
             // todo: influence in some way the strength based on the relative amount of instances in the cluster
             for cluster in source.iter().skip(1) {
                 let cluster_size = cluster.len() as f32;
@@ -155,9 +151,10 @@ impl ClusterModule {
             }
         }
 
-        // todo: handle this gracefully
+        // todo: handle this gracefully (sort by cluster size and truncate the smallest)
         if total_instances.len() > MAX_INSTANCES {
-            panic!("There are way too many clusters!")
+            // panic!("There are way too many clusters!")
+            total_instances.truncate(MAX_INSTANCES);
         }
 
         self.local_instance_buffer.buffer_data().copy_instances(&total_instances);
@@ -166,7 +163,7 @@ impl ClusterModule {
         self.phase = ClusteredData;
         self.last_clusters = total_instances;
 
-        println!("Clustering time: {:?}, averaging time: {:?}", cluster_time - initial_time, Instant::now() - cluster_time);
+        // println!("Copy time: {:?}, Clustering time: {:?}, averaging time: {:?}", copy_time - initial_time, cluster_time - copy_time, cluster_time.elapsed());
         self.last_clusters.len()
     }
 
