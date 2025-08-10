@@ -82,8 +82,17 @@ float attenuation(float f, float dist) {
     float alpha = f2 * (1.84 * pow(10, -11) * pow(T / T_REF, 0.5)
                          + pow(T / T_REF, -2.5) * (0.01278 * exp(-2239.1 / T) / (F_RO + f2 / F_RO))
                                                    + 0.1068 * exp(-3352.0 / T) / (F_RN + f2 / F_RN));
-
     return exp(-alpha * dist);
+}
+
+float inverse_square_attenuation(float dist) {
+    // I (intensity) = P / (4 pi r^2)
+    // P ≈ Amplitude^2
+    // I = k*A^2 / (4 pi r^2)
+    // to keep the same intensity, doubling R requires doubling A -> A is proportional to 1 / r (better math on the notes)
+    const float CONSTANT = 5.0;
+    // an amplitude multiplication of 0.00002 is more or less equivalent to -96dB, considered by many to be absolute quiet
+    return clamp(CONSTANT / dist, 0.00002, 1.0);
 }
 
 void main() {
@@ -112,6 +121,7 @@ void main() {
     vec2 right_hrtf = decode_polar_filter(texture(hrtfRight, hrtf_tex_coord).xyz);
     
     vec2 Xk = vec2(samples[sample_idx + fft_offset]);
+    Xk *= inverse_square_attenuation(dist);
 //    float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
 //    Xk *= attenuation(frequency, dist);
 //    Xk *= attenuation(frequency, 4000.0);
