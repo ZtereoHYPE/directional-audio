@@ -1,5 +1,5 @@
 use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
-use crate::scene::mesh::bvh::BvhBufferData;
+use crate::scene::mesh::bvh::{BvhBufferData, MAX_BVH_DEPTH};
 use crate::scene::mesh::TriangleBufferData;
 use crate::scene::source::AudioSource;
 use crate::scene::Scene;
@@ -12,8 +12,8 @@ use glam::{Vec3, Vec3A, Vec4};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
-use crate::audio_engine::{RayTracerConstants};
-use crate::vulkan::misc::read_spirv_words;
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 
 pub(super) struct RayModule {
     device: Device,
@@ -39,8 +39,14 @@ impl RayModule {
         descriptor_pool: DescriptorPool,
         queue: (Queue, u32),
         scene: &Scene,
-        constants: RayTracerConstants
     ) -> Self {
+        let constants = SpecConstantList::new()
+            .append(SPHERE_POINTS as u32) // sphere point amount
+            .append(MAX_SOURCES as u32) // source amount
+            .append(MAX_BVH_DEPTH as u32) // max BVH depth
+            .append(4_u32) // max bounces
+            .build();
+        
         let sources_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
@@ -206,12 +212,9 @@ impl RayModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
-            let specialization_entries =
-                RayTracerConstants::get_entries(&[0, 1, 2, 3]); // select these constants
-
             let specialization_info = SpecializationInfo::default()
-                .map_entries(&specialization_entries)
-                .data(constants.to_slice());
+                .map_entries(&constants.0)
+                .data(&constants.1);
 
             let stage_info = PipelineShaderStageCreateInfo::default()
                 .stage(ShaderStageFlags::COMPUTE)

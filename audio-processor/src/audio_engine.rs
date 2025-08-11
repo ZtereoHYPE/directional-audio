@@ -31,7 +31,7 @@ use crate::audio_engine::transfer::{DownloadBufferData, TransferModule};
 use crate::scene::listener::AudioListener;
 use crate::scene::mesh::bvh::MAX_BVH_DEPTH;
 use crate::VisualizationData;
-use crate::vulkan::misc::debug_callback;
+use crate::vulkan::debug_callback;
 
 pub(crate) mod gpu_constants;
 pub mod rays;
@@ -47,70 +47,6 @@ pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 
 /// Represents the window used for partitioned convolution
 pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
-
-// todo: figure out where to put these
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct RayTracerConstants {
-    point_amount: u32,
-    source_amount: u32,
-    max_bvh_depth: u32,
-    max_bounces: u32,
-}
-
-impl RayTracerConstants {
-    const SIZE: usize = size_of::<RayTracerConstants>();
-
-    /// warning: this assumes that all fields are 4 in size
-    fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
-        entries
-            .into_iter()
-            .map(|&idx| SpecializationMapEntry::default()
-                .constant_id(idx)
-                .offset(4 * idx)
-                .size(4)
-            )
-            .collect()
-    }
-
-    unsafe fn to_slice(&self) -> &[u8; Self::SIZE] {
-        transmute(self)
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct SignalProcessorConstants {
-    window_size: u32,
-    frame_size: u32,
-    filter_size: u32,
-    delay_buffer_size: u32,
-    pipelined_frames: u32,
-    sampling_rate: f32,
-    min_elevation: f32,
-    max_elevation: f32
-}
-
-impl SignalProcessorConstants {
-    const SIZE: usize = size_of::<SignalProcessorConstants>();
-
-    // warning: this assumes that all fields are 4 in size
-    fn get_entries(entries: &[u32]) -> Vec<SpecializationMapEntry> {
-        entries
-            .into_iter()
-            .map(|&idx| SpecializationMapEntry::default()
-                .constant_id(idx)
-                .offset(4 * idx)
-                .size(4)
-            )
-            .collect()
-    }
-
-    unsafe fn to_slice(&self) -> &[u8; Self::SIZE] {
-        transmute(self)
-    }
-}
-
 
 pub struct AudioEngine {
     scene: Scene,
@@ -314,31 +250,12 @@ impl AudioEngine {
                 .expect("failed to create fence")
         };
 
-        let rt_constants = RayTracerConstants {
-            point_amount: SPHERE_POINTS as u32,
-            source_amount: MAX_SOURCES as u32,
-            max_bvh_depth: MAX_BVH_DEPTH as u32,
-            max_bounces: 4,
-        };
-
-        let dsp_constants = SignalProcessorConstants {
-            window_size: GPU_WINDOW_SIZE as u32,
-            frame_size: FRAME_SIZE as u32,
-            filter_size: GPU_WINDOW_SIZE as u32,
-            delay_buffer_size: (MAX_DELAY_FRAMES * FRAME_SIZE) as u32,
-            pipelined_frames: 0, // todo: do not hardcode these
-            sampling_rate: 44100.0,
-            min_elevation: PI,
-            max_elevation: 0.0
-        };
-
         let fft_module = FftModule::new(
             buffer_allocator.clone(),
             &mut buffer_initializer,
             device.clone(),
             (compute_queue, compute_queue_idx),
             descriptor_pool,
-            dsp_constants
         );
 
         let delay_module = DelayModule::new(
@@ -349,7 +266,6 @@ impl AudioEngine {
             descriptor_pool,
             &instance_buffer,
             fft_module.starting_buffer(),
-            dsp_constants,
         );
 
         let hrtf_module = HrtfModule::new(
@@ -361,7 +277,6 @@ impl AudioEngine {
             descriptor_pool,
             &instance_buffer,
             fft_module.starting_buffer(), // todo: this is hardcoded for the size
-            dsp_constants
         );
 
         let transfer_module = TransferModule::new(
@@ -379,7 +294,6 @@ impl AudioEngine {
             descriptor_pool,
             (compute_queue, compute_queue_idx),
             &scene,
-            rt_constants
         );
 
         let cluster_module = ClusterModule::new(
@@ -430,9 +344,9 @@ impl AudioEngine {
             |cmd| self.cluster_module.upload_to_buffer(cmd, &mut self.instance_buffer)
         );
 
-        let instance_amt = self.scene.sources.len();
-        self.copy_sources_debug();
-        // todo: have 2 instance buffers
+        // let instance_amt = self.scene.sources.len();
+        // self.copy_sources_debug();
+        // // todo: have 2 instance buffers
         // self.buffer_initializer.onetime_action(
         //     &self.device,
         //     self.queue.0,
@@ -453,13 +367,13 @@ impl AudioEngine {
                 instances: self.cluster_module.get_clusters_debug().clone()
             };
 
-
             // debug_data.instances = self.scene.sources
             //     .iter()
             //     .map(|s| AudioInstance {
             //         direction: s.coordinates,
             //         distance: 0.0,
             //         index: 0,
+            //         attenuation: 1.0,
             //     })
             //     .collect();
 
@@ -654,6 +568,7 @@ pub(crate) unsafe fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> {
 pub struct AudioInstance {
     pub direction: Vec3,
     pub distance: f32,
+    pub attenuation: f32,
     pub index: u32,
 }
 
@@ -674,6 +589,7 @@ impl InstanceBufferData {
                 direction: source.coordinates,
                 distance: source.coordinates.length(),
                 index: idx as u32,
+                attenuation: 0.0,
             });
         }
 
@@ -688,21 +604,3 @@ impl InstanceBufferData {
         }
     }
 }
-
-
-/// Ray Tracing output buffer
-#[repr(align(16))]
-#[derive(Clone)]
-pub(crate) struct Output {
-    direction: Vec3,
-    additional_distance: f32,
-    bounces: u32,
-    source: u32,
-    found_source: bool,
-}
-
-pub(crate) struct RtOutputBufferData {
-    outputs: [Output; MAX_SOURCES * SPHERE_POINTS]
-}
-
-impl InlineBufferData for RtOutputBufferData {}

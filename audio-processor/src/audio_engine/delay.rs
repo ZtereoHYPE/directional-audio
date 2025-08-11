@@ -1,5 +1,5 @@
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
-use crate::audio_engine::{InstanceBufferData, SignalProcessorConstants};
+use crate::audio_engine::{InstanceBufferData};
 use crate::scene::source::FRAME_SIZE;
 use crate::util::AsBytes;
 use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
@@ -11,7 +11,8 @@ use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
 use crate::audio_engine::fft::FftBufferData;
-use crate::vulkan::misc::read_spirv_words;
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 
 pub(crate) struct DelayModule {
     device: Device,
@@ -33,8 +34,15 @@ impl DelayModule {
         descriptor_pool: DescriptorPool,
         instance_buffer: &VulkanBuffer<InstanceBufferData>,
         fft_starting_buffer: &VulkanBuffer<FftBufferData>,
-        constants: SignalProcessorConstants,
     ) -> Self {
+        let constants = SpecConstantList::new()
+            .append(GPU_WINDOW_SIZE as u32) // window size
+            .append(FRAME_SIZE as u32) // frame size
+            .append((MAX_DELAY_FRAMES * FRAME_SIZE) as u32) // delay buffer size
+            .append(0_u32) // pipelined frames
+            .append(44100.0_f32) // sampling rate
+            .build();
+        
         let mut delay_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
@@ -143,12 +151,9 @@ impl DelayModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
-            let specialization_entries =
-                SignalProcessorConstants::get_entries(&[0, 1, 3, 4, 5]); // select these constants
-
             let specialization_info = SpecializationInfo::default()
-                .map_entries(&specialization_entries)
-                .data(constants.to_slice());
+                .map_entries(&constants.0)
+                .data(&constants.1);
 
             let stage_info = PipelineShaderStageCreateInfo::default()
                 .stage(ShaderStageFlags::COMPUTE)

@@ -11,8 +11,9 @@ use std::f32::consts::PI;
 use std::mem::transmute;
 use std::rc::Rc;
 use vk_mem::Allocator;
-use crate::audio_engine::{GpuWindow, SignalProcessorConstants};
-use crate::vulkan::misc::read_spirv_words;
+use crate::audio_engine::GpuWindow;
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 
 pub(crate) const RADIX_AMT: usize = 3;
 pub(crate) const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
@@ -32,12 +33,6 @@ pub(crate) struct FftStage {
 
     // The stride between data in a given shader invocation (= input_size / radix)
     pub(crate) stride: u32
-}
-
-#[repr(C)]
-struct FftConstants {
-    constants: SignalProcessorConstants,
-    radix: u32
 }
 
 #[repr(C)]
@@ -69,8 +64,10 @@ impl FftModule {
         device: Device,
         queue: (Queue, u32),
         descriptor_pool: DescriptorPool,
-        constants: SignalProcessorConstants
     ) -> Self {
+        let constants = SpecConstantList::new()
+            .append(GPU_WINDOW_SIZE as u32);
+        
         let stages = Self::fft_stages(GPU_WINDOW_SIZE);
         let fft_buffer_0 = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
@@ -159,20 +156,18 @@ impl FftModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
-            let specialization_entries =
-                SignalProcessorConstants::get_entries(&[0, 8]); // select these constants
-
+            // For each radix create a new set of spec constants
             let constant_data = RADICES
                 .iter()
-                .map(|&radix| FftConstants { constants, radix })
+                .map(|&radix| constants.clone().append(radix).build())
                 .collect::<Vec<_>>();
 
             let specialization_infos: [_; RADIX_AMT] = constant_data
                 .iter()
-                .map(|datum| {
+                .map(|(entries, data)| {
                     SpecializationInfo::default()
-                        .map_entries(&specialization_entries)
-                        .data(transmute::<_, &[u8; size_of::<FftConstants>()]>(datum))
+                        .map_entries(&entries)
+                        .data(&data)
                 })
                 .collect::<Vec<_>>()
                 .try_into().unwrap();

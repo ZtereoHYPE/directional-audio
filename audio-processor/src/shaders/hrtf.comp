@@ -10,11 +10,9 @@ layout(local_size_x = 1, local_size_y = 64, local_size_z = 1) in;
 layout(constant_id = 0) const uint WINDOW_SIZE = 1024;
 layout(constant_id = 1) const uint FRAME_SIZE = 512;
 layout(constant_id = 2) const uint FILTER_SIZE = 1024;
-
-layout(constant_id = 5) const float SAMPLING_RATE = 44100;
-
-layout(constant_id = 6) const float MIN_ELEVATION = M_PI;
-layout(constant_id = 7) const float MAX_ELEVATION = 0;
+layout(constant_id = 3) const float SAMPLING_RATE = 44100;
+layout(constant_id = 4) const float MIN_ELEVATION = M_PI;
+layout(constant_id = 5) const float MAX_ELEVATION = 0;
 
 
 layout(push_constant, std430) uniform PushConstants {

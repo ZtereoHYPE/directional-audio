@@ -8,7 +8,7 @@ use std::rc::Rc;
 use vk_mem::Allocator;
 use crate::audio_engine::InstanceBufferData;
 use crate::audio_engine::rays::SourceBufferData;
-use crate::vulkan::misc::read_spirv_words;
+use crate::vulkan::read_spirv_words;
 
 pub(crate) struct DebugRayModule {
     device: Device,

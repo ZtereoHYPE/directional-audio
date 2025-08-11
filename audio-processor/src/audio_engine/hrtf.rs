@@ -6,12 +6,15 @@ use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use std::array::from_ref;
+use std::f32::consts::PI;
 use std::rc::Rc;
 use vk_mem::{Alloc, Allocator};
 use crate::audio_engine::fft::FftBufferData;
-use crate::audio_engine::{GpuWindow, InstanceBufferData, SignalProcessorConstants};
+use crate::audio_engine::{GpuWindow, InstanceBufferData};
 use crate::audio_engine::transfer::DownloadBufferData;
-use crate::vulkan::misc::read_spirv_words;
+use crate::scene::source::FRAME_SIZE;
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 
 // todo: rename to DspModule because it performs more than just HRTF (attenuation)
 pub struct HrtfModule {
@@ -35,8 +38,16 @@ impl HrtfModule {
         descriptor_pool: DescriptorPool,
         instance_buffer: &VulkanBuffer<InstanceBufferData>,
         fft_ending_buffer: &VulkanBuffer<FftBufferData>,
-        constants: SignalProcessorConstants,
     ) -> Self {
+        let constants = SpecConstantList::new()
+            .append(GPU_WINDOW_SIZE as u32) // window size
+            .append(FRAME_SIZE as u32) // frame size
+            .append(GPU_WINDOW_SIZE as u32) // filter size
+            .append(44100.0_f32) // sampling rate
+            .append(PI) // min elevation
+            .append(0.0_f32) // max elevation
+            .build();
+
         let mut output_buffer = VulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
             allocator.clone()
@@ -294,12 +305,9 @@ impl HrtfModule {
                 .create_shader_module(&shader_module_info, None)
                 .expect("Failed to create shader module");
 
-            let specialization_entries =
-                SignalProcessorConstants::get_entries(&[0, 1, 2, 5, 6, 7]); // select these constants
-
             let specialization_info = SpecializationInfo::default()
-                .map_entries(&specialization_entries)
-                .data(constants.to_slice());
+                .map_entries(&constants.0)
+                .data(&constants.1);
 
             let stage_info = PipelineShaderStageCreateInfo::default()
                 .stage(ShaderStageFlags::COMPUTE)
