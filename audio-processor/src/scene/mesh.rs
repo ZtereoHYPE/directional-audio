@@ -1,7 +1,7 @@
 use crate::scene::mesh::bvh::{BvhBufferData, BvhBuilder};
 use crate::util::{vec3, Axis};
 use crate::vulkan::buffer::BufferData;
-use glam::{Vec3, Vec3A};
+use glam::{Vec3, Vec3A, Vec4};
 
 pub(crate) mod bvh;
 
@@ -9,9 +9,17 @@ pub(crate) mod bvh;
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
     pub vertices: [Vec3A; 3],
+    pub absorption: f32,
 }
 
 impl Triangle {
+    pub fn new(vertices: [Vec3A; 3], absorption: f32) -> Self {
+        Self {
+            vertices,
+            absorption
+        }
+    }
+
     pub(crate) fn min_bound(&self) -> Vec3 {
         Vec3A::min(Vec3A::min(self.vertices[0], self.vertices[1]), self.vertices[2]).into()
     }
@@ -46,15 +54,17 @@ impl BufferData for TriangleBufferData {
             return;
         }
 
-        std::ptr::copy_nonoverlapping(
-            (&self.0[..] as *const [Triangle]).cast(),
-            dst,
-            self.size()
-        );
+        for (idx, triangle) in self.0.iter().enumerate() {
+            std::ptr::copy_nonoverlapping(
+                (triangle as *const Triangle).cast(),
+                dst.offset((idx * 64) as isize),
+                size_of::<Triangle>()
+            );
+        }
     }}
 
     fn size(&self) -> usize {
-        48 * self.0.len()
+        64 * self.0.len()
     }
 }
 

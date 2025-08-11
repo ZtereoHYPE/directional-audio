@@ -10,9 +10,10 @@ use glam::{dvec3, vec3, DVec2, DVec3, Vec3};
 use vk_mem::Allocator;
 use approx_dbscan::approximate_dbscan;
 use approx_dbscan::clusterable::{Clusterable, Point};
-use crate::audio_engine::{AudioInstance, InstanceBufferData, RtOutputBufferData};
+use crate::audio_engine::{AudioInstance, InstanceBufferData};
 use crate::audio_engine::cluster::ClusterModulePhase::{Clear, ClusteredData, LocalRtData};
 use crate::audio_engine::gpu_constants::{MAX_INSTANCES, MAX_SOURCES, SPHERE_POINTS};
+use crate::audio_engine::rays::RtOutputBufferData;
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 
 enum ClusterModulePhase {
@@ -112,10 +113,10 @@ impl ClusterModule {
             .map(|chunk|
                 chunk.iter()
                     .filter(|ray| ray.found_source) // filter each chunk to only valid outputs
-                    .map(|o| AudioInstance {
+                    .map(|o| AudioClusterPoint {
                         direction: o.direction,
                         distance: o.additional_distance,
-                        index: o.source,
+                        attenuation: o.attenuation,
                     })
                     .collect::<Vec<_>>() // collect each chunk into a vector of audio instances
             )
@@ -132,20 +133,23 @@ impl ClusterModule {
         for (source_idx, source) in source_clusters {
             // todo: influence in some way the strength based on the relative amount of instances in the cluster
             for cluster in source.iter().skip(1) {
-                let cluster_size = cluster.len() as f32;
                 let mut avg_direction = Vec3::ZERO;
                 let mut avg_distance = 0.0;
+                let mut avg_attenuation = 0.0;
 
-                for source in cluster {
-                    avg_direction += source.direction / cluster_size;
-                    avg_distance += source.distance / cluster_size;
+                for point in cluster {
+                    avg_direction += point.direction;
+                    avg_distance += point.distance;
+                    avg_attenuation += point.attenuation;
                 }
 
+                let cluster_size = cluster.len() as f32;
                 total_instances.push(AudioInstance {
-                    direction: avg_direction,
-                    distance: avg_distance,
+                    direction: avg_direction / cluster_size,
+                    distance: avg_distance / cluster_size,
+                    attenuation: avg_attenuation / cluster_size,
                     index: source_idx as u32,
-                })
+                });
             }
         }
 
@@ -200,8 +204,14 @@ impl ClusterModule {
     }
 }
 
+#[derive(Clone)]
+struct AudioClusterPoint {
+    direction: Vec3,
+    distance: f32,
+    attenuation: f32,
+}
 
-impl Clusterable<3> for AudioInstance {
+impl Clusterable<3> for AudioClusterPoint {
     fn distance(&self, other: &Self) -> f64 {
         self.direction.distance(other.direction) as f64
     }
@@ -221,13 +231,5 @@ impl Clusterable<3> for AudioInstance {
             2 => self.direction.z as f64,
             _ => unreachable!()
         }
-    }
-}
-
-fn dvec3_to_vec3(dvec: DVec3) -> Vec3 {
-    Vec3 {
-        x: dvec.x as f32,
-        y: dvec.y as f32,
-        z: dvec.z as f32,
     }
 }

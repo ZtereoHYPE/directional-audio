@@ -6,6 +6,7 @@ use godot::obj::{Base, WithBaseField};
 use godot::prelude::*;
 
 pub const AUDIO_MESH_GROUP: &str = "AudioMeshes";
+pub const MESH_ABSORPTION_COEFFICIENT: f32 = 0.1; // todo: make this configurable from godot!
 
 #[derive(GodotClass)]
 #[class(init, base=StaticBody3D)]
@@ -61,7 +62,7 @@ impl AudioMeshNode {
                     .map(|vertex| to_vec(vertex + offset).into())
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
-                    .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
+                    .map(|vertices| Triangle::new(vertices.try_into().unwrap(), MESH_ABSORPTION_COEFFICIENT))
                     .collect::<Vec<_>>();
 
                 triangles.append(&mut mesh_tris);
@@ -74,7 +75,7 @@ impl AudioMeshNode {
                     .map(|vertex| to_vec(vertex + offset).into())
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
-                    .map(|vertices| Triangle { vertices: vertices.try_into().unwrap() })
+                    .map(|vertices| Triangle::new(vertices.try_into().unwrap(), MESH_ABSORPTION_COEFFICIENT))
                     .collect::<Vec<_>>();
 
                 triangles.append(&mut mesh_tris);

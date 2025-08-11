@@ -20,6 +20,7 @@ layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct Triangle {
     vec3 vertices[3];
+    float absorption;
 };
 
 struct HitRecord {
@@ -27,11 +28,13 @@ struct HitRecord {
     bool did_hit;
     vec3 normal;
     float t;
+    float absorption;
 };
 
 struct Ray {
     vec3 origin;
     vec3 direction;
+    float reflected_amplitude;
 };
 
 vec3 ray_at(Ray ray, float t) {
@@ -48,7 +51,7 @@ struct BvhNode {
 struct Output {
     vec3 location;
     float additional_distance;
-    uint bounces;
+    float attenuation;
     uint source;
     bool found_source;
 };
@@ -138,6 +141,7 @@ HitRecord hit_triangle(Ray ray, Triangle triangle) {
     hit.t = t;
     hit.pos = ray_at(ray, t);
     hit.normal = plane_normal;
+    hit.absorption = triangle.absorption;
 
     return hit;
 }
@@ -223,7 +227,7 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
 
     Output result;
     result.additional_distance = 0;
-    result.bounces = 0;
+    result.attenuation = 1.0;
     result.source = source_idx;
     result.found_source = false;
 
@@ -261,11 +265,9 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
             result.location = mesh_hit.pos;
         }
 
-        // Increment the output's values
-        result.additional_distance += length(main_ray.origin - mesh_hit.pos);
-        result.bounces++;
-
         // Else, keep bouncing (using perfect reflections)
+        result.additional_distance += length(main_ray.origin - mesh_hit.pos);
+        result.attenuation *= (1.0 - mesh_hit.absorption);
         main_ray.origin = mesh_hit.pos;
         main_ray.direction = reflect(main_ray.direction, mesh_hit.normal);
     }

@@ -12,7 +12,7 @@ use glam::{Vec3, Vec3A, Vec4};
 use std::array::from_ref;
 use std::rc::Rc;
 use vk_mem::Allocator;
-use crate::audio_engine::{RayTracerConstants, RtOutputBufferData};
+use crate::audio_engine::{RayTracerConstants};
 use crate::vulkan::misc::read_spirv_words;
 
 pub(super) struct RayModule {
@@ -372,3 +372,20 @@ impl SourceBufferData {
 }
 
 impl InlineBufferData for SourceBufferData {}
+
+/// Ray Tracing output buffer
+#[repr(align(16))]
+#[derive(Clone)]
+pub(crate) struct Output {
+    pub direction: Vec3,
+    pub additional_distance: f32,
+    pub attenuation: f32,
+    pub source: u32,
+    pub found_source: bool,
+}
+
+pub(crate) struct RtOutputBufferData {
+    pub outputs: [Output; MAX_SOURCES * SPHERE_POINTS]
+}
+
+impl InlineBufferData for RtOutputBufferData {}
