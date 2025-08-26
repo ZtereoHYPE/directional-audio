@@ -6,6 +6,8 @@ pub mod scene;
 pub mod util;
 mod vulkan;
 
+use crate::audio_engine::rays::RayBufferData;
+use crate::audio_engine::{AudioEngine, AudioInstance};
 use crate::scene::source::Frame;
 use crate::scene::Scene;
 use glam::{Mat3, Vec3};
@@ -14,8 +16,6 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
-use crate::audio_engine::{AudioEngine, AudioInstance};
-use crate::audio_engine::rays::RayBufferData;
 
 pub struct VisualizationData {
     pub last_rt_origin: Vec3,
@@ -63,7 +63,7 @@ impl AudioEngineMonitor {
         let thread_state = state.clone();
         let vulkan_thread = thread::spawn(move || {
             let engine = unsafe {
-                AudioEngine::new(scene)
+                AudioEngine::new(scene, 2)
             };
 
             Self::vulkan_thread_job(engine, thread_state, frame_tx, debug_tx, action_rx);
@@ -126,13 +126,13 @@ impl AudioEngineMonitor {
             match action_rx.try_recv() {
                 Ok(EngineAction::Terminate)                         => break,
                 Ok(EngineAction::Pause)                             => Self::park_vulkan_thread(&action_rx),
-                Ok(EngineAction::RequestVisData)                  => debug_data = true,
+                Ok(EngineAction::RequestVisData)                    => debug_data = true,
                 Err(TryRecvError::Empty) | Ok(EngineAction::Play)   => {},
                 Err(e)                                  => println!("Error receiving message: {}", e)
             }
 
+            // Check for any updates to listener or sources
             {
-                // Check for any updates to listener or sources
                 let mut locked_state = scene_state.lock().unwrap();
                 if let Some((pos, dir)) = locked_state.listener {
                     engine.update_listener(pos, dir);
@@ -145,14 +145,20 @@ impl AudioEngineMonitor {
                 }
             }
 
-            // in the future: have a "request" system that only updates once a (rendered) frame using queues
-            let (left, right, debug) = engine.get_next_frames(debug_data);
+            let debug_callback = if debug_data {
+                Some(|vis_data| debug_tx.send(vis_data).unwrap())
+            } else {
+                None
+            };
 
-            if let Some(vis_data) = debug {
-                debug_tx.send(vis_data);
-            }
-
-            frame_tx.send((left, right));
+            let sender_copy = frame_tx.clone();
+            engine.request_frame(
+                move |left, right| {
+                    println!("Received frames!");
+                    sender_copy.send((left, right)).unwrap()
+                },
+                debug_callback
+            );
         }
     }
 

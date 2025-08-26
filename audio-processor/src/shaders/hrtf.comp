@@ -94,12 +94,6 @@ float inverse_square_attenuation(float dist) {
 }
 
 void main() {
-    // todo: research the following for performance:
-    // - coherent buffer access (better split or single buffer?)
-    // - coherent buffer access (better in warp or across warps?)
-    // - frames access (better continuous in invocation, or split throughout warp?)
-    // - caching?
-    
     uint sample_idx = gl_GlobalInvocationID.x;
     uint instance_idx = gl_GlobalInvocationID.y;
 

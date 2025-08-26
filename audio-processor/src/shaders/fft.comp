@@ -23,10 +23,10 @@
     SOFTWARE.
 */
 
-#version 450
+#version 460
 #include "imports/utils.comp"
 
-layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 32) in;
 
 layout(constant_id = 0) const uint WINDOW_SIZE = 1024;
 layout(constant_id = 1) const uint RADIX = 8;
@@ -45,7 +45,7 @@ layout(push_constant, std430) uniform StageInfo {
 
 layout(binding = 0, std430) restrict buffer DataBuffers {
     vec2 values[];
-} data[2]; // todo: measure performance loss of no readonly/writeonly modifiers
+} data[2];
 
 void swapComplexNumbers(inout vec2 a, inout vec2 b) {
     vec2 aux = b;

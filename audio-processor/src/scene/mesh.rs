@@ -1,7 +1,7 @@
 use crate::scene::mesh::bvh::{BvhBufferData, BvhBuilder};
 use crate::util::{vec3, Axis};
 use crate::vulkan::buffer::BufferData;
-use glam::{Vec3, Vec3A, Vec4};
+use glam::{Vec3, Vec3A};
 
 pub(crate) mod bvh;
 

@@ -6,14 +6,16 @@ use crate::scene::Scene;
 use crate::util::AsBytes;
 use crate::vulkan::buffer::{BufferData, InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
-use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
+use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, Semaphore, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use glam::{Vec3, Vec3A, Vec4};
 use std::array::from_ref;
 use std::rc::Rc;
+use std::sync::Arc;
 use vk_mem::Allocator;
-use crate::vulkan::read_spirv_words;
-use crate::vulkan::spec_constants::SpecConstantList;
+use crate::vulkan::queue::VulkanQueue;
 
 pub(super) struct RayModule {
     device: Device,
@@ -26,18 +28,22 @@ pub(super) struct RayModule {
     bvh_buffer: VulkanBuffer<BvhBufferData>,
     triangle_buffer: VulkanBuffer<TriangleBufferData>,
     ray_buffer: VulkanBuffer<RayBufferData>,
+    queue: Queue,
     pub(super) local_ray_buffer: LocalVulkanBuffer<RayBufferData>,
     pub(super) output_buffer: VulkanBuffer<RtOutputBufferData>,
-    queue: Queue
+
+    pub(super) copy_next_debug: bool,
+    pub(super) last_rt_origin: Vec3,
+    in_progress_rt_origin: Vec3,
 }
 
 impl RayModule {
     pub(super) fn new(
-        allocator: Rc<Allocator>,
+        allocator: Arc<Allocator>,
         initializer: &mut BufferInitializer,
         device: Device,
         descriptor_pool: DescriptorPool,
-        queue: (Queue, u32),
+        queue: VulkanQueue,
         scene: &Scene,
     ) -> Self {
         let constants = SpecConstantList::new()
@@ -244,13 +250,16 @@ impl RayModule {
             bvh_buffer,
             triangle_buffer,
             ray_buffer,
+            queue: queue.handle,
             local_ray_buffer,
             output_buffer,
-            queue: queue.0,
+            copy_next_debug: false,
+            last_rt_origin: Vec3::ZERO,
+            in_progress_rt_origin: Vec3::ZERO,
         }
     }
 
-    pub(super) unsafe fn stage_sources(&mut self, command_buffer: &mut CommandBuffer, sources: &Vec<AudioSource>) {
+    pub(super) unsafe fn upload_sources(&mut self, command_buffer: &mut CommandBuffer, sources: &Vec<AudioSource>) {
         // Stage the new coordinates
         self.local_sources_buffer.buffer_data().copy_coordinates(sources);
         self.local_sources_buffer.invalidate();
@@ -279,6 +288,8 @@ impl RayModule {
     }
 
     pub(super) unsafe fn shoot_rays(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, store_rays: bool) {
+        self.in_progress_rt_origin = origin;
+        
         if store_rays {
             self.device.cmd_fill_buffer(*command_buffer, self.ray_buffer.handle(), 0, WHOLE_SIZE, 0);
         }
@@ -332,6 +343,12 @@ impl RayModule {
     }
 
     pub(super) unsafe fn copy_ray_buffer(&mut self, command_buffer: &mut CommandBuffer) {
+        if !self.copy_next_debug {
+            return;
+        }
+        
+        self.copy_next_debug = false;
+
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::SHADER_WRITE) // flush any shader write caches
             .dst_access_mask(AccessFlags::TRANSFER_READ); // invalidate any transfer read caches
@@ -352,6 +369,11 @@ impl RayModule {
             self.local_ray_buffer.handle(),
             RayBufferData::region()
         );
+    }
+    
+    /// Sets the last raytraced origin to the in-progress (and now completed) one
+    pub(super) fn update_rt_origin(&mut self) {
+        self.last_rt_origin = self.in_progress_rt_origin
     }
 }
 

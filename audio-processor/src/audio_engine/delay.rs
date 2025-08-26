@@ -1,18 +1,20 @@
+use crate::audio_engine::fft::FftBufferData;
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES};
-use crate::audio_engine::{InstanceBufferData};
+use crate::audio_engine::InstanceBufferData;
 use crate::scene::source::FRAME_SIZE;
 use crate::util::AsBytes;
 use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use glam::{Mat3, Mat3A, Vec2, Vec3};
 use std::array::from_ref;
 use std::rc::Rc;
+use std::sync::Arc;
 use vk_mem::Allocator;
-use crate::audio_engine::fft::FftBufferData;
-use crate::vulkan::read_spirv_words;
-use crate::vulkan::spec_constants::SpecConstantList;
+use crate::vulkan::queue::VulkanQueue;
 
 pub(crate) struct DelayModule {
     device: Device,
@@ -20,17 +22,16 @@ pub(crate) struct DelayModule {
     pipeline_layout: PipelineLayout,
     descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
-    queue: Queue,
 
     pub(super) delay_buffer: VulkanBuffer<DelayBufferData>,
 }
 
 impl DelayModule {
     pub unsafe fn new(
-        allocator: Rc<Allocator>,
+        allocator: Arc<Allocator>,
         initializer: &mut BufferInitializer,
         device: Device,
-        queue: (Queue, u32),
+        queue: VulkanQueue,
         descriptor_pool: DescriptorPool,
         instance_buffer: &VulkanBuffer<InstanceBufferData>,
         fft_starting_buffer: &VulkanBuffer<FftBufferData>,
@@ -39,7 +40,6 @@ impl DelayModule {
             .append(GPU_WINDOW_SIZE as u32) // window size
             .append(FRAME_SIZE as u32) // frame size
             .append((MAX_DELAY_FRAMES * FRAME_SIZE) as u32) // delay buffer size
-            .append(0_u32) // pipelined frames
             .append(44100.0_f32) // sampling rate
             .build();
         
@@ -177,7 +177,6 @@ impl DelayModule {
             pipeline_layout,
             descriptor_set,
             descriptor_set_layout,
-            queue: queue.0,
 
             delay_buffer
         }

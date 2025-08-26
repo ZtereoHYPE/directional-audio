@@ -1,10 +1,10 @@
+use crate::audio_engine::fft::FftModule;
 use crate::audio_engine::gpu_constants::GPU_WINDOW_SIZE;
 use crate::util::{complex, vec3};
 use crate::vulkan::buffer::BufferData;
 use glam::{vec2, Vec2, Vec3, Vec4};
 use sofar::reader::{Filter, OpenOptions};
 use std::f32::consts::PI;
-use crate::audio_engine::fft::FftModule;
 
 #[derive(Clone)]
 pub struct HrtfOptions {

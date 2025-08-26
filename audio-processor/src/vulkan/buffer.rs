@@ -1,12 +1,13 @@
 use ash::vk;
 use ash::vk::{BufferCopy, BufferCreateInfo, BufferUsageFlags, DeviceSize, SharingMode, WHOLE_SIZE};
 use std::alloc::{alloc_zeroed, Layout};
-use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::slice::from_ref;
+use std::sync::Arc;
 use vk_mem::{Alloc, AllocationCreateFlags, Allocator};
+use crate::vulkan::queue::QueueSelection;
 
 /// Represents data that can be serialized into a VulkanBuffer.
 pub(crate) trait BufferData: Sized {
@@ -19,6 +20,7 @@ pub(crate) trait BufferData: Sized {
 ///
 /// # Note:
 /// **Only primitive/inline types are allowed** (no Vec<_>, Box<_>, Rc<_>, etc.).
+// todo: make this an unsafe trait for correctness reasons
 pub(crate) trait InlineBufferData: BufferData {
     const REGION: BufferCopy = BufferCopy {
         src_offset: 0,
@@ -77,7 +79,7 @@ impl<T: InlineBufferData> BufferData for T {
 pub(crate) struct BufferBase<T: BufferData> {
     handle: vk::Buffer,
     memory: vk_mem::Allocation,
-    allocator: Rc<Allocator>,
+    allocator: Arc<Allocator>,
     _marker: PhantomData<T> // While this struct doesn't directly own a T, it still "contains" it (through the buffer)
 }
 
@@ -89,15 +91,18 @@ pub(crate) struct VulkanBuffer<T: BufferData> {
 }
 
 impl<T: BufferData> VulkanBuffer<T> {
-    pub(crate) fn new_dynamic(usage: BufferUsageFlags, data: T, allocator: Rc<Allocator>) -> Self {
+    pub(crate) fn new_dynamic(usage: BufferUsageFlags, data: T, allocator: Arc<Allocator>) -> Self {
         Self::new(usage, data.size(), allocator)
     }
 
-    fn new(usage: BufferUsageFlags, size: usize, allocator: Rc<Allocator>) -> Self {
+    fn new(usage: BufferUsageFlags, size: usize, allocator: Arc<Allocator>) -> Self {
+        let queue_families = QueueSelection::get_global_families();
+
         let buffer_info = BufferCreateInfo::default()
             .size(size as DeviceSize)
             .usage(usage)
-            .sharing_mode(SharingMode::EXCLUSIVE);
+            .sharing_mode(SharingMode::CONCURRENT)
+            .queue_family_indices(&queue_families);
 
         let allocation_info = vk_mem::AllocationCreateInfo {
             usage: vk_mem::MemoryUsage::AutoPreferDevice,
@@ -127,7 +132,7 @@ impl<T: BufferData> VulkanBuffer<T> {
 }
 
 impl<T: InlineBufferData> VulkanBuffer<T> {
-    pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
+    pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Arc<Allocator>) -> Self {
         Self::new(usage, size_of::<T>(), allocator)
     }
 }
@@ -148,11 +153,14 @@ pub(crate) struct LocalVulkanBuffer<T: InlineBufferData> {
 }
 
 impl<T: InlineBufferData> LocalVulkanBuffer<T> {
-    pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Rc<Allocator>) -> Self {
+    pub(crate) fn new_inline(usage: BufferUsageFlags, allocator: Arc<Allocator>) -> Self {
+        let queue_families = QueueSelection::get_global_families();
+
         let buffer_info = BufferCreateInfo::default()
             .size(size_of::<T>() as DeviceSize)
             .usage(usage)
-            .sharing_mode(SharingMode::EXCLUSIVE);
+            .sharing_mode(SharingMode::CONCURRENT)
+            .queue_family_indices(&queue_families);
 
         let allocation_info = vk_mem::AllocationCreateInfo {
             usage: vk_mem::MemoryUsage::AutoPreferHost,

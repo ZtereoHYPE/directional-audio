@@ -1,35 +1,49 @@
-use crate::audio_engine::gpu_constants::{MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
-use crate::audio_engine::{GpuFrame, GpuWindow};
-use crate::scene::source::{AudioSource, FRAME_SIZE};
+use crate::audio_engine::delay::DelayBufferData;
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_DELAY_FRAMES, MAX_SOURCES, SLIDING_WINDOW_FRAME_AMT};
+use crate::scene::source::{AudioSource, Frame, FRAME_SIZE};
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use ash::prelude::VkResult;
-use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, FenceCreateInfo, MemoryBarrier, PipelineStageFlags, Queue, SubmitInfo};
+use ash::vk::{AccessFlags, Buffer, BufferCopy, BufferUsageFlags, CommandBuffer, CommandBufferBeginInfo, CommandBufferResetFlags, CommandBufferUsageFlags, DependencyFlags, DeviceSize, Fence, FenceCreateInfo, MemoryBarrier, PipelineStageFlags, Queue, Semaphore, SemaphoreSignalInfo, SemaphoreWaitInfo, SubmitInfo};
 use ash::Device;
 use glam::Vec2;
 use std::array::from_ref;
 use std::error::Error;
+use std::intrinsics::transmute;
 use std::rc::Rc;
+use std::sync::{mpsc, Arc};
+use std::sync::mpsc::Sender;
+use std::thread;
+use std::thread::JoinHandle;
 use vk_mem::Allocator;
-use crate::audio_engine::delay::DelayBufferData;
+use crate::audio_engine::{AudioSyncStage, GpuFrame, GpuWindow, RtSyncStage};
+use crate::audio_engine::fft::FftModule;
+use crate::audio_engine::rays::RtOutputBufferData;
+use crate::VisualizationData;
+use crate::vulkan::in_flight::{InFlight, InFlightCounter};
+use crate::vulkan::queue::VulkanQueue;
+
+type Task = Box<dyn Fn(&mut LocalVulkanBuffer<DownloadBufferData>) + Send>;
 
 pub struct TransferModule {
-    allocator: Rc<Allocator>,
     device: Device,
-    queue: Queue,
-    fence: Fence,
+    queue: VulkanQueue,
 
     upload_buffer: LocalVulkanBuffer<UploadBufferData>,
-    download_buffer: LocalVulkanBuffer<DownloadBufferData>,
+    download_buffer_handle: Buffer,
 
-    input_buffer_handle: Buffer, // do NOT free these, they are not this module's responsibility
+    input_buffer_handle: Buffer,
     output_buffer_handle: Buffer,
+
+    submit_thread: JoinHandle<()>,
+    submit_queue: Sender<Task>,
 }
 
 impl TransferModule {
     pub unsafe fn new(
-        allocator: Rc<Allocator>,
+        allocator: Arc<Allocator>,
         device: Device,
-        queue: (Queue, u32),
+        queue: VulkanQueue,
+        frames_in_flight: usize,
         input_buffer: &VulkanBuffer<DelayBufferData>,
         output_buffer: &VulkanBuffer<DownloadBufferData>,
     ) -> TransferModule {
@@ -38,28 +52,35 @@ impl TransferModule {
             allocator.clone()
         );
         
-        let download_buffer = LocalVulkanBuffer::new_inline(
-            BufferUsageFlags::TRANSFER_DST,
-            allocator.clone()
-        );
+        let (submit_queue, submit_receiver) = mpsc::channel();
+        let (handle_sender, handle_receiver) = mpsc::channel();
 
-        let fence = device
-            .create_fence(&FenceCreateInfo::default(), None)
-            .expect("failed to create fence");
+        let submit_thread = thread::spawn(move || {
+            let mut download_buffer: LocalVulkanBuffer<DownloadBufferData> = LocalVulkanBuffer::new_inline(BufferUsageFlags::TRANSFER_DST, allocator.clone());
+            
+            handle_sender.send(download_buffer.handle());
+
+            loop {
+                let task: Task = submit_receiver.recv().unwrap();
+                task(&mut download_buffer);
+            }
+        });
+
+        let download_buffer_handle = handle_receiver.recv().unwrap();
 
         TransferModule {
-            allocator,
             device,
-            queue: queue.0,
+            queue,
             upload_buffer,
-            download_buffer,
-            fence,
+            download_buffer_handle,
             input_buffer_handle: input_buffer.handle(),
             output_buffer_handle: output_buffer.handle(),
+            submit_thread,
+            submit_queue
         }
     }
 
-    pub unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, sources: &mut Vec<AudioSource>, frame_counter: usize) -> VkResult<()> {
+    pub(super) unsafe fn upload_new_frames(&mut self, command_buffer: &mut CommandBuffer, sources: &mut Vec<AudioSource>, frame_counter: usize) -> VkResult<()> {
         let mut regions = vec![];
         let mut clear_frames: Vec<DeviceSize> = vec![];
         
@@ -89,13 +110,6 @@ impl TransferModule {
 
         self.upload_buffer.flush();
 
-        self.device.reset_command_buffer(*command_buffer, CommandBufferResetFlags::empty())?;
-
-        let begin_info = CommandBufferBeginInfo::default()
-            .flags(CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-        self.device.begin_command_buffer(*command_buffer, &begin_info)?;
-
         self.device.cmd_copy_buffer(
             *command_buffer,
             self.upload_buffer.handle(),
@@ -107,43 +121,20 @@ impl TransferModule {
             self.device.cmd_fill_buffer(*command_buffer, self.input_buffer_handle, offset, (FRAME_SIZE * size_of::<Vec2>()) as DeviceSize, 0)
         }
 
-        let memory_barrier = MemoryBarrier::default()
-            .src_access_mask(AccessFlags::TRANSFER_WRITE) // flush any transfer write caches
-            .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
-
-        self.device.cmd_pipeline_barrier(
-            *command_buffer,
-            PipelineStageFlags::TRANSFER, // wait for all transfer commands so far...
-            PipelineStageFlags::COMPUTE_SHADER, // ...before executing any compute from now on
-            DependencyFlags::empty(),
-            from_ref(&memory_barrier),
-            &[],
-            &[]
-        );
-
         Ok(())
     }
 
-    pub unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer) -> VkResult<(Box<GpuWindow>, Box<GpuWindow>)> {
-        self.device.reset_fences(from_ref(&self.fence))?;
-
+    pub(super) unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer) {
         self.device.cmd_copy_buffer(
             *command_buffer,
             self.output_buffer_handle,
-            self.download_buffer.handle(),
+            self.download_buffer_handle,
             DownloadBufferData::region()
         );
-    
-        self.device.end_command_buffer(*command_buffer)?;
+    }
 
-        let submit_info = SubmitInfo::default()
-            .command_buffers(from_ref(command_buffer));
-    
-        self.device.queue_submit(self.queue, &[submit_info], self.fence)?;
-        self.device.wait_for_fences(from_ref(&self.fence), true, u64::MAX)?;
-        self.download_buffer.invalidate();
-
-        Ok(self.download_buffer.buffer_data().get_windows())
+    pub(super) fn schedule_submit_task(&mut self, task: Task) {
+        self.submit_queue.send(task);
     }
 }
 

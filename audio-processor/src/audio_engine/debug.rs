@@ -1,14 +1,15 @@
+use crate::audio_engine::rays::SourceBufferData;
+use crate::audio_engine::InstanceBufferData;
 use crate::util::{workgroup_div, AsBytes};
-use crate::vulkan::buffer::{VulkanBuffer};
+use crate::vulkan::buffer::VulkanBuffer;
+use crate::vulkan::read_spirv_words;
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
-use glam::{Mat3, Mat3A, Vec3, Vec3A};
+use glam::Vec3;
 use std::array::from_ref;
 use std::rc::Rc;
+use std::sync::Arc;
 use vk_mem::Allocator;
-use crate::audio_engine::InstanceBufferData;
-use crate::audio_engine::rays::SourceBufferData;
-use crate::vulkan::read_spirv_words;
 
 pub(crate) struct DebugRayModule {
     device: Device,
@@ -22,7 +23,7 @@ pub(crate) struct DebugRayModule {
 
 impl DebugRayModule {
     pub(super) fn new(
-        allocator: Rc<Allocator>,
+        allocator: Arc<Allocator>,
         device: Device,
         descriptor_pool: DescriptorPool,
         sources_buffer: &VulkanBuffer<SourceBufferData>, // this is NOT the right buffer man

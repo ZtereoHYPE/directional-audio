@@ -1,12 +1,12 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(unused)]
 
-use crate::vulkan::buffer::{BufferData, VulkanBuffer};
+use crate::vulkan::buffer::{BufferData, LocalVulkanBuffer, VulkanBuffer};
 use ash::vk::{Buffer, BufferCopy, BufferCreateInfo, BufferImageCopy, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DependencyFlags, DeviceSize, Extent3D, Fence, FenceCreateInfo, Image, ImageAspectFlags, ImageLayout, ImageMemoryBarrier, ImageSubresourceLayers, ImageSubresourceRange, PhysicalDevice, PipelineStageFlags, Queue, SharingMode, SubmitInfo, QUEUE_FAMILY_IGNORED, WHOLE_SIZE};
 use ash::{Device, Instance};
 use std::array::from_ref;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, Allocator, AllocatorCreateInfo};
-use crate::audio_engine::InstanceBufferData;
+use crate::vulkan::queue::{QueueSelection, VulkanQueue};
 
 pub(crate) enum InitMode<T: BufferData> {
     Zeroed,
@@ -69,10 +69,12 @@ impl BufferInitializer {
         };
 
         let (staging_buffer, staging_memory, staging_map) = {
+            let queue_families = QueueSelection::get_global_families();
             let buffer_info = BufferCreateInfo::default()
                 .size(STAGING_BUFFER_SIZE as DeviceSize)
                 .usage(BufferUsageFlags::TRANSFER_SRC)
-                .sharing_mode(SharingMode::EXCLUSIVE);
+                .sharing_mode(SharingMode::CONCURRENT)
+                .queue_family_indices(&queue_families);
 
             let allocation_info = vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
@@ -112,14 +114,14 @@ impl BufferInitializer {
         }
     }
 
-    pub(crate) fn init_buffer<T: BufferData>(&mut self, buffer: &mut VulkanBuffer<T>, mode: InitMode<T>, queue: (Queue, u32), device: &Device) {
+    pub(crate) fn init_buffer<T: BufferData>(&mut self, buffer: &mut VulkanBuffer<T>, mode: InitMode<T>, queue: VulkanQueue, device: &Device) {
         // Check if the queue matches
-        if queue.1 != self.queue_family {
-            panic!("Currently, only queue family {} is supported! {} was requested.", self.queue_family, queue.1)
+        if queue.family != self.queue_family {
+            panic!("Currently, only queue family {} is supported! {} was requested.", self.queue_family, queue.family)
         }
 
         if let InitMode::Zeroed = mode {
-            unsafe { self.clear_buffer(device, queue.0, &mut buffer.handle(), buffer.size()); }
+            unsafe { self.clear_buffer(device, queue.handle, &mut buffer.handle(), buffer.size()); }
             return;
         }
 
@@ -140,7 +142,7 @@ impl BufferInitializer {
             device.cmd_copy_buffer(self.command_buffer, self.staging_buffer, buffer.handle(), from_ref(&region));
 
             // submit
-            self.end_command(device, queue.0);
+            self.end_command(device, queue.handle);
         }
     }
 

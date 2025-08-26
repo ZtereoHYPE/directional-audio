@@ -1,20 +1,22 @@
+use crate::audio_engine::fft::FftBufferData;
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
+use crate::audio_engine::transfer::DownloadBufferData;
+use crate::audio_engine::{GpuWindow, InstanceBufferData};
 use crate::scene::listener::hrtf_filter::HrtfFilter;
+use crate::scene::source::FRAME_SIZE;
 use crate::util::{workgroup_div, AsBytes};
-use crate::vulkan::buffer::{VulkanBuffer};
+use crate::vulkan::buffer::VulkanBuffer;
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorImageInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, Extent3D, Filter, Format, ImageAspectFlags, ImageCreateInfo, ImageLayout, ImageSubresourceRange, ImageTiling, ImageType, ImageUsageFlags, ImageViewCreateInfo, ImageViewType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, SampleCountFlags, SamplerAddressMode, SamplerCreateInfo, SamplerMipmapMode, ShaderModuleCreateInfo, ShaderStageFlags, SharingMode, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use std::array::from_ref;
 use std::f32::consts::PI;
 use std::rc::Rc;
+use std::sync::Arc;
 use vk_mem::{Alloc, Allocator};
-use crate::audio_engine::fft::FftBufferData;
-use crate::audio_engine::{GpuWindow, InstanceBufferData};
-use crate::audio_engine::transfer::DownloadBufferData;
-use crate::scene::source::FRAME_SIZE;
-use crate::vulkan::read_spirv_words;
-use crate::vulkan::spec_constants::SpecConstantList;
+use crate::vulkan::queue::VulkanQueue;
 
 // todo: rename to DspModule because it performs more than just HRTF (attenuation)
 pub struct HrtfModule {
@@ -23,18 +25,16 @@ pub struct HrtfModule {
     pipeline_layout: PipelineLayout,
     descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
-    queue: Queue,
-
     pub(super) output_buffer: VulkanBuffer<DownloadBufferData>,
 }
 
 impl HrtfModule {
     pub(super) unsafe fn new(
         filter: HrtfFilter,
-        allocator: Rc<Allocator>,
+        allocator: Arc<Allocator>,
         initializer: &mut BufferInitializer,
         device: Device,
-        queue: (Queue, u32),
+        queue: VulkanQueue,
         descriptor_pool: DescriptorPool,
         instance_buffer: &VulkanBuffer<InstanceBufferData>,
         fft_ending_buffer: &VulkanBuffer<FftBufferData>,
@@ -114,7 +114,7 @@ impl HrtfModule {
 
         initializer.init_image(
             &device,
-            queue.0.clone(),
+            queue.handle,
             Box::new(filter.left),
             &mut hrtf_left,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
@@ -123,7 +123,7 @@ impl HrtfModule {
 
         initializer.init_image(
             &device,
-            queue.0.clone(),
+            queue.handle,
             Box::new(filter.right),
             &mut hrtf_right,
             ImageLayout::SHADER_READ_ONLY_OPTIMAL,
@@ -332,13 +332,13 @@ impl HrtfModule {
             pipeline_layout,
             descriptor_set,
             descriptor_set_layout,
-            queue: queue.0,
-
             output_buffer
         }
     }
 
     pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, instance_amt: u32) {
+        self.device.cmd_fill_buffer(*command_buffer, self.output_buffer.handle(), 0, size_of::<DownloadBufferData>() as _, 0);
+        
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -377,9 +377,5 @@ impl HrtfModule {
             &[],
             &[]
         );
-    }
-
-    pub(super) unsafe fn wipe_output(&mut self, command_buffer: &mut CommandBuffer) {
-        self.device.cmd_fill_buffer(*command_buffer, self.output_buffer.handle(), 0, size_of::<DownloadBufferData>() as _, 0);
     }
 }

@@ -1,19 +1,18 @@
 #version 460
 #include "imports/utils.comp"
 
-layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 64) in;
 
 
 layout(constant_id = 0) const uint WINDOW_SIZE = 1024;
 layout(constant_id = 1) const uint FRAME_SIZE = 512;
 layout(constant_id = 2) const uint DELAY_BUFFER_SIZE = 220160; // in samples (= ~5s @ 44100Hz, rounded to %WINDOW_SIZE)
-layout(constant_id = 3) const uint PIPELINED_FRAMES = 0; // how many frames ahead does the CPU upload data
-layout(constant_id = 4) const float SAMPLING_RATE = 44100;
+layout(constant_id = 3) const float SAMPLING_RATE = 44100;
 
 const float SOUND_SPEED = 340.29;
 
 // max delay in samples is: buf size - cpu pipeline (can't read where its being uploaded) - window size (the whole window needs to be valid)
-const uint MAX_DELAY = DELAY_BUFFER_SIZE - (PIPELINED_FRAMES * FRAME_SIZE) - WINDOW_SIZE;
+const uint MAX_DELAY = DELAY_BUFFER_SIZE - (FRAME_SIZE) - WINDOW_SIZE;
 const uint INITIAL_OFFSET = -(WINDOW_SIZE - FRAME_SIZE) + DELAY_BUFFER_SIZE; // start WINDOW_SIZE - FRAME_SIZE before 0 (wraps around adding BUFFER_SIZE)
 
 

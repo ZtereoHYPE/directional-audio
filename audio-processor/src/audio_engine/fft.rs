@@ -1,19 +1,20 @@
 use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
-use crate::util::{complex, AsBytes};
+use crate::audio_engine::GpuWindow;
 use crate::util::complex::root_of_unity;
+use crate::util::{complex, AsBytes};
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
-use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
+use crate::vulkan::buffer_initializer::BufferInitializer;
+use crate::vulkan::read_spirv_words;
+use crate::vulkan::spec_constants::SpecConstantList;
 use ash::vk::{AccessFlags, BufferUsageFlags, CommandBuffer, ComputePipelineCreateInfo, DependencyFlags, DescriptorBufferInfo, DescriptorPool, DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding, DescriptorSetLayoutCreateInfo, DescriptorType, MemoryBarrier, Pipeline, PipelineBindPoint, PipelineCache, PipelineLayout, PipelineLayoutCreateInfo, PipelineShaderStageCreateInfo, PipelineStageFlags, PushConstantRange, Queue, ShaderModuleCreateInfo, ShaderStageFlags, SpecializationInfo, WriteDescriptorSet, WHOLE_SIZE};
 use ash::Device;
 use glam::Vec2;
 use std::array::from_ref;
 use std::f32::consts::PI;
-use std::mem::transmute;
 use std::rc::Rc;
+use std::sync::Arc;
 use vk_mem::Allocator;
-use crate::audio_engine::GpuWindow;
-use crate::vulkan::read_spirv_words;
-use crate::vulkan::spec_constants::SpecConstantList;
+use crate::vulkan::queue::VulkanQueue;
 
 pub(crate) const RADIX_AMT: usize = 3;
 pub(crate) const RADICES: [u32; RADIX_AMT] = [8, 4, 2];
@@ -53,16 +54,14 @@ pub(crate) struct FftModule {
     descriptor_set_layout: DescriptorSetLayout,
     buffers: [VulkanBuffer<FftBufferData>; 2],
     pub debug_buffer: LocalVulkanBuffer<FftBufferData>,
-    queue: Queue,
     stages: Vec<FftStage>,
 }
 
 impl FftModule {
     pub(super) fn new(
-        allocator: Rc<Allocator>,
+        allocator: Arc<Allocator>,
         initializer: &mut BufferInitializer,
         device: Device,
-        queue: (Queue, u32),
         descriptor_pool: DescriptorPool,
     ) -> Self {
         let constants = SpecConstantList::new()
@@ -204,7 +203,6 @@ impl FftModule {
             descriptor_set_layout,
             buffers: [fft_buffer_0, fft_buffer_1],
             debug_buffer,
-            queue: queue.0,
             stages,
         }
     }
@@ -308,7 +306,6 @@ impl FftModule {
         stages
     }
 
-    // todo: could be a bit more elegant
     fn stage_pipeline(radix: u32) -> usize {
         for (idx, rdx) in RADICES.iter().enumerate() {
             if radix == *rdx {
