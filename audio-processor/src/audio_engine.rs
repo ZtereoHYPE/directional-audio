@@ -28,6 +28,7 @@ use std::mem::transmute;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::fence;
+use std::time::Instant;
 use itertools::izip;
 use vk_mem::{Allocator, AllocatorCreateInfo};
 use crate::audio_engine::transfer::{DownloadBufferData, TransferModule};
@@ -308,16 +309,24 @@ impl AudioEngine {
             (audio, rt)
         };
 
-        let audio_deps = [
-            (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Upload)]),
-            (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload), (1, AudioSyncStage::Compute)]),
-            (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute), (1, AudioSyncStage::Submit)]),
-            // (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
+        // let audio_deps = [
+        //     (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Upload)]),
+        //     (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload), (1, AudioSyncStage::Compute)]),
+        //     (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute), (1, AudioSyncStage::Submit)]),
+        //     // (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
+        //     (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
+        // ].into_iter().collect();
+
+        // TODO MASSIVE: figure out why pipelining causes crackling sound
+        let audio_deps_seq = [
+            (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Submit)]),
+            (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload)]),
+            (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
             (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
         ].into_iter().collect();
 
         let audio_counter = InFlightCounter::new(frames_in_flight);
-        let audio_timeline = TimelineTracker::new(audio_semaphores, audio_deps);
+        let audio_timeline = TimelineTracker::new(audio_semaphores, audio_deps_seq);
 
         let rt_deps = [
             (RtSyncStage::RayTrace, vec![]),
@@ -352,8 +361,9 @@ impl AudioEngine {
             device.clone(),
             compute_queue,
             descriptor_pool,
+            frames_in_flight,
             &instance_buffer,
-            fft_module.starting_buffer(), // todo: this is hardcoded for the size
+            fft_module.ending_buffer(),
         );
 
         let transfer_module = TransferModule::new(
@@ -362,7 +372,7 @@ impl AudioEngine {
             compute_queue,
             frames_in_flight,
             &delay_module.delay_buffer,
-            &hrtf_module.output_buffer,
+            &hrtf_module.output_buffers,
         );
 
         let ray_module = RayModule::new(
@@ -434,11 +444,9 @@ impl AudioEngine {
         let request_debug_data = debug_consumer.is_some();
 
         // Request an update to the instance buffer, if possible
-        let instance_amt = self
+         let update_ready = self
             .update_instances(request_debug_data)
             .expect("Failed to calculate new instances!");
-
-        // let instance_amt = self.scene.sources.len();
 
         // Gather and submit the debug data
         if request_debug_data {
@@ -452,13 +460,18 @@ impl AudioEngine {
         }
         
         // Schedule the next audio frame
-        self.request_audio(frame_consumer, instance_amt as u32);
+        self.request_audio(frame_consumer, update_ready);
 
         self.frame_counter += 1;
     }}
 
     // from signal processor
-    unsafe fn request_audio(&mut self, consumer: impl Fn(Frame, Frame) + Send + 'static, instance_amt: u32) -> VkResult<()> {
+    unsafe fn request_audio(&mut self, consumer: impl Fn(Frame, Frame) + Send + 'static, update_instances: bool) -> VkResult<()> {
+        let start_time = Instant::now();
+
+        self.cluster_module.update_instances(); // we know that these won't change until the compute is done
+        let instance_amt = self.cluster_module.instance_amt() as u32;
+
         let timeline = &mut self.audio_timeline;
         let counter = self.audio_counter;
 
@@ -466,6 +479,8 @@ impl AudioEngine {
         let fences = self.audio_fences[counter];
         self.device.wait_for_fences(&[fences.0, fences.1], true, u64::MAX)?;
         self.device.reset_fences(&[fences.0, fences.1])?;
+
+        let fence_time = Instant::now();
 
         // Prepare the command buffers
         let (mut upload_buffer, mut compute_buffer, mut download_buffer) = self.audio_command_buffers[self.audio_counter];
@@ -483,18 +498,31 @@ impl AudioEngine {
         // transfer data to right buffer
         self.transfer_module.upload_new_frames(&mut upload_buffer, &mut self.scene.sources, self.frame_counter)?;
 
+        // update the instances
+        if update_instances {
+            println!("sample number {} is updating instances", self.frame_counter * FRAME_SIZE);
+            // the compute buffer ensures that the next compute calculations waits until this is done
+            // before executing, therefore avoiding bad reads
+            self.device.cmd_copy_buffer(
+                compute_buffer,
+                self.cluster_module.instance_buffer.handle(),
+                self.instance_buffer.handle(),
+                InstanceBufferData::region()
+            );
+        }
+
         // move the delayed windows to the fft buffer
-        let camera_delta = self.scene.listener.location - self.ray_module.last_rt_origin;
-        self.delay_module.apply_delay(&mut compute_buffer, self.frame_counter, camera_delta, self.scene.listener.rotation, MAX_SOURCES);
+        // todo: get rid of this
+        self.delay_module.apply_delay(&mut compute_buffer, self.frame_counter, self.scene.listener.location, MAX_SOURCES);
 
         // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut compute_buffer, 0, false, MAX_SOURCES);
 
         // perform HRTF dsp
-        self.hrtf_module.apply_hrtf(&mut compute_buffer, instance_amt);
+        self.hrtf_module.apply_hrtf(&mut compute_buffer, counter, instance_amt, self.scene.listener.rotation, self.scene.listener.location);
 
         // transfer data back
-        self.transfer_module.download_windows(&mut download_buffer);
+        self.transfer_module.download_windows(&mut download_buffer, counter);
 
         self.device.end_command_buffer(upload_buffer)?;
         self.device.end_command_buffer(compute_buffer)?;
@@ -502,7 +530,7 @@ impl AudioEngine {
 
         let (upload_wait_semaphore, upload_wait_values) = timeline.get_wait_info(counter, AudioSyncStage::Upload);
         let (upload_signal_semaphore, upload_signal_values) = timeline.get_signal_info(counter, AudioSyncStage::Upload);
-        let upload_stages = vec![PipelineStageFlags::TRANSFER; upload_wait_semaphore.len()];
+        let upload_stages = vec![PipelineStageFlags::BOTTOM_OF_PIPE; upload_wait_semaphore.len()];
         let mut timeline_info_upload = TimelineSemaphoreSubmitInfo::default()
             .wait_semaphore_values(&upload_wait_values)
             .signal_semaphore_values(&upload_signal_values);
@@ -515,7 +543,7 @@ impl AudioEngine {
 
         let (compute_wait_semaphore, compute_wait_values) = timeline.get_wait_info(counter, AudioSyncStage::Compute);
         let (compute_signal_semaphore, compute_signal_values) = timeline.get_signal_info(counter, AudioSyncStage::Compute);
-        let compute_stages = vec![PipelineStageFlags::COMPUTE_SHADER; compute_wait_semaphore.len()];
+        let compute_stages = vec![PipelineStageFlags::BOTTOM_OF_PIPE; compute_wait_semaphore.len()];
         let mut timeline_info_compute = TimelineSemaphoreSubmitInfo::default()
             .wait_semaphore_values(&compute_wait_values)
             .signal_semaphore_values(&compute_signal_values);
@@ -528,7 +556,7 @@ impl AudioEngine {
 
         let (download_wait_semaphore, download_wait_values) = timeline.get_wait_info(counter, AudioSyncStage::Download);
         let (download_signal_semaphore, download_signal_values) = timeline.get_signal_info(counter, AudioSyncStage::Download);
-        let download_stages = vec![PipelineStageFlags::TRANSFER; download_wait_semaphore.len()];
+        let download_stages = vec![PipelineStageFlags::BOTTOM_OF_PIPE; download_wait_semaphore.len()];
         let mut timeline_info_download = TimelineSemaphoreSubmitInfo::default()
             .wait_semaphore_values(&download_wait_values)
             .signal_semaphore_values(&download_signal_values);
@@ -543,13 +571,16 @@ impl AudioEngine {
         self.device.queue_submit(self.transfer_queue.handle, &[submit_info_upload, submit_info_download], fences.0)?;
         self.device.queue_submit(self.compute_queue.handle, &[submit_info_compute], fences.1)?;
 
+        let gpu_record_time = Instant::now();
+
         // Schedule a submission of this audio frame data back to the consumer
         let device = self.device.clone();
         let thread_timeline = timeline.clone();
         self.transfer_module.schedule_submit_task(Box::new(move |
             download_buffer: &mut LocalVulkanBuffer<DownloadBufferData>
         | unsafe {
-            println!("Scheduled a submission...");
+            let thread_initial_time = Instant::now();
+
             let (wait_semaphores, wait_values) = thread_timeline.get_wait_info(counter, AudioSyncStage::Submit);
             let wait_info = SemaphoreWaitInfo::default()
                 .semaphores(&wait_semaphores)
@@ -560,7 +591,7 @@ impl AudioEngine {
                 .wait_semaphores(&wait_info, u64::MAX)
                 .expect("Failed to wait for audio sync");
 
-            println!("Waited for semaphore, going to submit this frame!");
+            let execution_time = Instant::now();
 
             // Get the data from the local buffer
             download_buffer.invalidate();
@@ -573,26 +604,35 @@ impl AudioEngine {
                 .value(signal_values[0]);
             device.signal_semaphore(&signal_info);
 
+            let copy_time = Instant::now();
+
             // Transform the data into frames
-            // todo: AVOID ALL THESE COPIES, perhaps make a single function that does all of this
             let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
             let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
+
+            // todo: AVOID COPIES, perhaps make a single function that does all of this
             let (start, end) = DownloadBufferData::last_frame_range();
             let left = gpu_to_frame(&GpuFrame::try_from(&left[start..end]).unwrap());
             let right = gpu_to_frame(&GpuFrame::try_from(&right[start..end]).unwrap());
 
+            let misha_time = Instant::now();
+
             // Submit to consumer
             consumer(left, right);
+
+            println!("Submit thread time elapsed: wait {:?}; copy+signal {:?}; misha {:?}; submit {:?}", execution_time - thread_initial_time, copy_time - execution_time, misha_time - copy_time, misha_time.elapsed())
         }));
 
         timeline.advance_frame(counter);
         self.audio_counter = self.audio_counter.next();
 
+        println!("Main thread time elapsed: fence {:?}; record {:?}; end {:?}", fence_time - start_time, gpu_record_time - fence_time, gpu_record_time.elapsed());
+
         Ok(())
     }
 
     // todo: currently this updates the only instance buffer: might cause bad reads!
-    unsafe fn update_instances(&mut self, store_rays: bool) -> VkResult<usize> {
+    unsafe fn update_instances(&mut self, store_rays: bool) -> VkResult<bool> {
         if store_rays {
             self.ray_module.copy_next_debug = true;
         }
@@ -603,9 +643,7 @@ impl AudioEngine {
         
         // If the previous instance update is still happening, simply return
         if !self.device.get_fence_status(fence)? {
-            self.ray_module.update_rt_origin();
-            self.cluster_module.update_instances();
-            return Ok(self.cluster_module.instance_amt());
+            return Ok(false);
         }
 
         self.device.reset_fences(&[fence])?;
@@ -636,11 +674,14 @@ impl AudioEngine {
 
         // Upload the cluster to the instance buffer
         // todo: move the buffers to be managed by the cluster module? figure out a better way perhaps
-        self.cluster_module.upload_to_buffer(&mut self.rt_command_buffers.1, &mut self.instance_buffer);
+        self.cluster_module.upload_to_buffer(&mut self.rt_command_buffers.1);
 
         // Submit the command buffer
-        let (wait_semaphore_0, wait_value_0) = timeline.get_wait_info(counter, RtSyncStage::RayTrace);
+        let (mut wait_semaphore_0, mut wait_value_0) = timeline.get_wait_info(counter, RtSyncStage::RayTrace);
         let (signal_semaphore_0, signal_value_0) = timeline.get_signal_info(counter, RtSyncStage::RayTrace);
+        // Add a dependency to the compute stage of the next audio timeline, to avoid changing the current values until that's done
+        wait_semaphore_0.push(self.audio_timeline.semaphores[self.audio_counter]);
+        wait_value_0.push(self.audio_timeline.completed_stage_val(0, self.audio_counter, AudioSyncStage::Compute));
         let mut timeline_info_0 = TimelineSemaphoreSubmitInfo::default()
             .wait_semaphore_values(&wait_value_0)
             .signal_semaphore_values(&signal_value_0);
@@ -648,6 +689,7 @@ impl AudioEngine {
             .wait_semaphores(&wait_semaphore_0)
             .signal_semaphores(&signal_semaphore_0)
             .command_buffers(from_ref(&self.rt_command_buffers.0))
+            .wait_dst_stage_mask(&[PipelineStageFlags::BOTTOM_OF_PIPE; 1])
             .push_next(&mut timeline_info_0);
 
         let (wait_semaphore_1, wait_value_1) = timeline.get_wait_info(counter, RtSyncStage::Upload);
@@ -659,7 +701,7 @@ impl AudioEngine {
             .wait_semaphores(&wait_semaphore_1)
             .signal_semaphores(&signal_semaphore_1)
             .command_buffers(from_ref(&self.rt_command_buffers.1))
-            .wait_dst_stage_mask(from_ref(&PipelineStageFlags::TRANSFER))
+            .wait_dst_stage_mask(&[PipelineStageFlags::BOTTOM_OF_PIPE; 1])
             .push_next(&mut timeline_info_1);
 
         let (wait_semaphore_mid, wait_value_mid) = timeline.get_wait_info(counter, RtSyncStage::Cluster);
@@ -674,7 +716,7 @@ impl AudioEngine {
         timeline.advance_frame(counter);
         self.rt_counter = self.rt_counter.next();
 
-        Ok(self.cluster_module.instance_amt()) // todo: this is completely wrong!
+        Ok(true)
     }
 
     pub(crate) fn update_listener(&mut self, new_location: Vec3, new_rotation: Mat3) {

@@ -14,7 +14,7 @@ pub(crate) trait PipelineStage: Eq + Hash + Copy + Clone {
 #[derive(Clone)]
 pub(crate) struct TimelineTracker<T: PipelineStage> {
     frames: InFlight<u64>,
-    semaphores: InFlight<Semaphore>,
+    pub semaphores: InFlight<Semaphore>,
     dependencies: HashMap<T, Vec<(u8, T)>>,
 }
 

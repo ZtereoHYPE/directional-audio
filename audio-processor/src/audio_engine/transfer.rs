@@ -32,7 +32,7 @@ pub struct TransferModule {
     download_buffer_handle: Buffer,
 
     input_buffer_handle: Buffer,
-    output_buffer_handle: Buffer,
+    output_buffer_handles: InFlight<Buffer>,
 
     submit_thread: JoinHandle<()>,
     submit_queue: Sender<Task>,
@@ -45,7 +45,7 @@ impl TransferModule {
         queue: VulkanQueue,
         frames_in_flight: usize,
         input_buffer: &VulkanBuffer<DelayBufferData>,
-        output_buffer: &VulkanBuffer<DownloadBufferData>,
+        output_buffer: &InFlight<VulkanBuffer<DownloadBufferData>>,
     ) -> TransferModule {
         let upload_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC,
@@ -56,7 +56,8 @@ impl TransferModule {
         let (handle_sender, handle_receiver) = mpsc::channel();
 
         let submit_thread = thread::spawn(move || {
-            let mut download_buffer: LocalVulkanBuffer<DownloadBufferData> = LocalVulkanBuffer::new_inline(BufferUsageFlags::TRANSFER_DST, allocator.clone());
+            let mut download_buffer: LocalVulkanBuffer<DownloadBufferData> =
+                LocalVulkanBuffer::new_inline(BufferUsageFlags::TRANSFER_DST, allocator.clone());
             
             handle_sender.send(download_buffer.handle());
 
@@ -68,13 +69,18 @@ impl TransferModule {
 
         let download_buffer_handle = handle_receiver.recv().unwrap();
 
+        let output_buffer_handles = InFlight::create(
+            frames_in_flight,
+            |idx| output_buffer.0[idx].handle()
+        );
+
         TransferModule {
             device,
             queue,
             upload_buffer,
             download_buffer_handle,
             input_buffer_handle: input_buffer.handle(),
-            output_buffer_handle: output_buffer.handle(),
+            output_buffer_handles,
             submit_thread,
             submit_queue
         }
@@ -124,10 +130,10 @@ impl TransferModule {
         Ok(())
     }
 
-    pub(super) unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer) {
+    pub(super) unsafe fn download_windows(&mut self, command_buffer: &mut CommandBuffer, counter: InFlightCounter) {
         self.device.cmd_copy_buffer(
             *command_buffer,
-            self.output_buffer_handle,
+            self.output_buffer_handles[counter],
             self.download_buffer_handle,
             DownloadBufferData::region()
         );

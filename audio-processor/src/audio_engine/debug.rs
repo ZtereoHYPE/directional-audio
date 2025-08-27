@@ -94,13 +94,8 @@ impl DebugRayModule {
         };
 
         let (pipeline, pipeline_layout) = unsafe {
-            let push_constant_range = PushConstantRange::default()
-                .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(12);
-
             let layout_info = PipelineLayoutCreateInfo::default()
-                .set_layouts(from_ref(&descriptor_set_layout))
-                .push_constant_ranges(from_ref(&push_constant_range));
+                .set_layouts(from_ref(&descriptor_set_layout));
 
             let layout = device
                 .create_pipeline_layout(&layout_info, None)
@@ -142,7 +137,7 @@ impl DebugRayModule {
         }
     }
 
-    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3) {
+    pub(super) unsafe fn copy_sources(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32) {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -156,14 +151,6 @@ impl DebugRayModule {
             *command_buffer,
             PipelineBindPoint::COMPUTE,
             self.pipeline
-        );
-
-        self.device.cmd_push_constants(
-            *command_buffer,
-            self.pipeline_layout,
-            ShaderStageFlags::COMPUTE,
-            0,
-            origin.as_bytes()
         );
 
         self.device.cmd_dispatch(*command_buffer, workgroup_div(source_amt, 64), 1, 1);

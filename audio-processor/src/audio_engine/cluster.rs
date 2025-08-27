@@ -30,6 +30,8 @@ pub(super) struct ClusterModule {
     local_rt_output_buffer_handle: Buffer,
     local_instance_buffer_handle: Buffer,
 
+    pub(super) instance_buffer: VulkanBuffer<InstanceBufferData>,
+
     work_thread: JoinHandle<()>,
     work_queue: Sender<Task>,
 
@@ -43,6 +45,11 @@ impl ClusterModule {
         device: Device,
         rt_output_buffer: &VulkanBuffer<RtOutputBufferData>,
     ) -> Self {
+        let instance_buffer: VulkanBuffer<InstanceBufferData> = VulkanBuffer::new_inline(
+            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST,
+            allocator.clone()
+        );
+        
         let (work_queue, work_receiver) = mpsc::channel();
         let (handle_sender, handle_receiver) = mpsc::channel();
 
@@ -56,6 +63,7 @@ impl ClusterModule {
                 BufferUsageFlags::TRANSFER_SRC,
                 allocator.clone()
             );
+
 
             handle_sender.send(local_rt_output_buffer.handle());
             handle_sender.send(local_instance_buffer.handle());
@@ -78,6 +86,7 @@ impl ClusterModule {
             in_progress_clusters: Arc::new(Mutex::new(vec![])),
             work_thread,
             work_queue,
+            instance_buffer
         }
     }
 
@@ -204,11 +213,11 @@ impl ClusterModule {
         self.last_clusters.len()
     }
 
-    pub(crate) unsafe fn upload_to_buffer(&mut self, command_buffer: &mut CommandBuffer, buffer: &mut VulkanBuffer<InstanceBufferData>) {
+    pub(crate) unsafe fn upload_to_buffer(&mut self, command_buffer: &mut CommandBuffer) {
         self.device.cmd_copy_buffer(
             *command_buffer,
             self.local_instance_buffer_handle,
-            buffer.handle(),
+            self.instance_buffer.handle(),
             InstanceBufferData::region()
         );
 
@@ -224,7 +233,7 @@ impl ClusterModule {
             from_ref(&memory_barrier),
             &[],
             &[]
-        );
+        )
     }
     
     /// Sets the last clusters to the in-progress (and now completed) ones

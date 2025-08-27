@@ -28,6 +28,10 @@ impl InFlightCounter {
             ..*self
         }
     }
+
+    pub fn idx(&self) -> usize {
+        self.counter
+    }
 }
 
 impl PartialEq for InFlightCounter {

@@ -46,7 +46,7 @@ pub struct AudioEngineMonitor {
 impl AudioEngineMonitor {
     pub fn start(mut scene: Scene, max_ahead: usize) -> Self {
         // Create sync structures
-        let (frame_tx, frame_rx) = mpsc::sync_channel(max_ahead); // render max 10 frames ahead
+        let (frame_tx, frame_rx) = mpsc::sync_channel(max_ahead);
         let (debug_tx, debug_rx) = mpsc::channel();
         let (action_tx, action_rx) = mpsc::channel();
 
@@ -154,7 +154,6 @@ impl AudioEngineMonitor {
             let sender_copy = frame_tx.clone();
             engine.request_frame(
                 move |left, right| {
-                    println!("Received frames!");
                     sender_copy.send((left, right)).unwrap()
                 },
                 debug_callback
