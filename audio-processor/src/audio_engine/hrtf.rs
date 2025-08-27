@@ -15,7 +15,9 @@ use std::array::from_ref;
 use std::f32::consts::PI;
 use std::rc::Rc;
 use std::sync::Arc;
+use glam::{Mat3, Mat3A, Vec3};
 use vk_mem::{Alloc, Allocator};
+use crate::vulkan::in_flight::{InFlight, InFlightCounter};
 use crate::vulkan::queue::VulkanQueue;
 
 // todo: rename to DspModule because it performs more than just HRTF (attenuation)
@@ -25,7 +27,7 @@ pub struct HrtfModule {
     pipeline_layout: PipelineLayout,
     descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
-    pub(super) output_buffer: VulkanBuffer<DownloadBufferData>,
+    pub(super) output_buffers: InFlight<VulkanBuffer<DownloadBufferData>>,
 }
 
 impl HrtfModule {
@@ -36,6 +38,7 @@ impl HrtfModule {
         device: Device,
         queue: VulkanQueue,
         descriptor_pool: DescriptorPool,
+        frames_in_flight: usize,
         instance_buffer: &VulkanBuffer<InstanceBufferData>,
         fft_ending_buffer: &VulkanBuffer<FftBufferData>,
     ) -> Self {
@@ -48,12 +51,17 @@ impl HrtfModule {
             .append(0.0_f32) // max elevation
             .build();
 
-        let mut output_buffer = VulkanBuffer::new_inline(
-            BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
-            allocator.clone()
+        let mut output_buffers = InFlight::create(
+            frames_in_flight,
+            |_| VulkanBuffer::new_inline(
+                BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::TRANSFER_DST | BufferUsageFlags::STORAGE_BUFFER,
+                allocator.clone()
+            )
         );
 
-        initializer.init_buffer(&mut output_buffer, InitMode::Zeroed, queue, &device);
+        for buffer in output_buffers.0.iter_mut() {
+            initializer.init_buffer(buffer, InitMode::Zeroed, queue, &device);
+        }
 
         let ((mut hrtf_left, hrtf_left_mem, hrtf_left_view), (mut hrtf_right, hrtf_right_mem, hrtf_right_view)) = {
             let image_info = ImageCreateInfo::default()
@@ -163,13 +171,13 @@ impl HrtfModule {
 
                 DescriptorSetLayoutBinding::default()
                     .binding(2)
-                    .descriptor_count(1)
+                    .descriptor_count(2)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .stage_flags(ShaderStageFlags::COMPUTE),
 
                 DescriptorSetLayoutBinding::default()
                     .binding(3)
-                    .descriptor_count(1)
+                    .descriptor_count(2)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
                     .stage_flags(ShaderStageFlags::COMPUTE),
 
@@ -210,14 +218,27 @@ impl HrtfModule {
                 DescriptorBufferInfo::default()
                     .buffer(fft_ending_buffer.handle()) // TODO: this is hardcoded for window size 2048!
                     .range(WHOLE_SIZE),
-
+            ];
+            
+            // L[0] L[1] R[0] R[1]
+            let output_infos = [
                 DescriptorBufferInfo::default()
-                    .buffer(output_buffer.handle())
+                    .buffer(output_buffers.0[0].handle())
                     .offset(0)
                     .range(size_of::<GpuWindow>() as _),
 
                 DescriptorBufferInfo::default()
-                    .buffer(output_buffer.handle())
+                    .buffer(output_buffers.0[1].handle())
+                    .offset(0)
+                    .range(size_of::<GpuWindow>() as _),
+
+                DescriptorBufferInfo::default()
+                    .buffer(output_buffers.0[0].handle())
+                    .offset(size_of::<GpuWindow>() as _)
+                    .range(WHOLE_SIZE),
+                
+                DescriptorBufferInfo::default()
+                    .buffer(output_buffers.0[1].handle())
                     .offset(size_of::<GpuWindow>() as _)
                     .range(WHOLE_SIZE),
             ];
@@ -252,17 +273,17 @@ impl HrtfModule {
 
                 WriteDescriptorSet::default()
                     .dst_set(set)
-                    .descriptor_count(1)
+                    .descriptor_count(2)
                     .dst_binding(2)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(from_ref(&buffer_infos[2])),
+                    .buffer_info(&output_infos[0..2]),
 
                 WriteDescriptorSet::default()
                     .dst_set(set)
-                    .descriptor_count(1)
+                    .descriptor_count(2)
                     .dst_binding(3)
                     .descriptor_type(DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(from_ref(&buffer_infos[3])),
+                    .buffer_info(&output_infos[2..4]),
 
                 WriteDescriptorSet::default()
                     .dst_set(set)
@@ -286,7 +307,7 @@ impl HrtfModule {
         let (pipeline, pipeline_layout) = {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(4);
+                .size(68);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .push_constant_ranges(from_ref(&push_constant_range))
@@ -332,12 +353,12 @@ impl HrtfModule {
             pipeline_layout,
             descriptor_set,
             descriptor_set_layout,
-            output_buffer
+            output_buffers
         }
     }
 
-    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, instance_amt: u32) {
-        self.device.cmd_fill_buffer(*command_buffer, self.output_buffer.handle(), 0, size_of::<DownloadBufferData>() as _, 0);
+    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, counter: InFlightCounter, instance_amt: u32, rotation: Mat3, position: Vec3) {
+        self.device.cmd_fill_buffer(*command_buffer, self.output_buffers[counter].handle(), 0, size_of::<DownloadBufferData>() as _, 0);
         
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
@@ -359,8 +380,10 @@ impl HrtfModule {
         }
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, workgroup_div(instance_amt, 64));
-
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, instance_amt.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(rotation).as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, position.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 60, instance_amt.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 64, (counter.idx() as u32).as_bytes());
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

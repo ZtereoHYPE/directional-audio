@@ -281,6 +281,12 @@ impl FftModule {
         &self.buffers[0]
     }
 
+    pub fn ending_buffer(&self) -> &VulkanBuffer<FftBufferData> {
+        let stages = Self::fft_stages(GPU_WINDOW_SIZE).len();
+
+        &self.buffers[stages % 2]
+    }
+
     pub(super) fn fft_stages(input_size: usize) -> Vec<FftStage> {
         let mut stages = vec![];
 

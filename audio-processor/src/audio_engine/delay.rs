@@ -132,7 +132,7 @@ impl DelayModule {
         let (pipeline, pipeline_layout) = {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(64);
+                .size(16);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .set_layouts(from_ref(&descriptor_set_layout))
@@ -182,7 +182,21 @@ impl DelayModule {
         }
     }
 
-    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: usize, camera_delta: Vec3, camera_rotation: Mat3, instance_amt: usize) {
+    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: usize, camera_position: Vec3, instance_amt: usize) {
+        let memory_barrier = MemoryBarrier::default()
+            .src_access_mask(AccessFlags::TRANSFER_WRITE) // flush any transfer write caches
+            .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches
+
+        self.device.cmd_pipeline_barrier(
+            *command_buffer,
+            PipelineStageFlags::TRANSFER, // wait for all compute dispatches so far...
+            PipelineStageFlags::COMPUTE_SHADER, // ...before executing any transfers from now on
+            DependencyFlags::empty(),
+            from_ref(&memory_barrier),
+            &[],
+            &[]
+        );
+        
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,
@@ -198,9 +212,9 @@ impl DelayModule {
             self.pipeline
         );
 
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(camera_rotation).as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, camera_delta.as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 60, (frame_counter as u32).as_bytes());
+        // self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(camera_rotation).as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, camera_position.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 12, (frame_counter as u32).as_bytes());
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt as u32);
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);

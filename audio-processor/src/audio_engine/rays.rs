@@ -34,7 +34,6 @@ pub(super) struct RayModule {
 
     pub(super) copy_next_debug: bool,
     pub(super) last_rt_origin: Vec3,
-    in_progress_rt_origin: Vec3,
 }
 
 impl RayModule {
@@ -244,6 +243,7 @@ impl RayModule {
             pipeline,
             pipeline_layout,
             descriptor_set,
+
             descriptor_set_layout,
             sources_buffer,
             local_sources_buffer,
@@ -254,8 +254,7 @@ impl RayModule {
             local_ray_buffer,
             output_buffer,
             copy_next_debug: false,
-            last_rt_origin: Vec3::ZERO,
-            in_progress_rt_origin: Vec3::ZERO,
+            last_rt_origin: Vec3::ZERO
         }
     }
 
@@ -288,8 +287,8 @@ impl RayModule {
     }
 
     pub(super) unsafe fn shoot_rays(&mut self, command_buffer: &mut CommandBuffer, source_amt: u32, origin: Vec3, store_rays: bool) {
-        self.in_progress_rt_origin = origin;
-        
+        self.last_rt_origin = origin;
+
         if store_rays {
             self.device.cmd_fill_buffer(*command_buffer, self.ray_buffer.handle(), 0, WHOLE_SIZE, 0);
         }
@@ -369,11 +368,6 @@ impl RayModule {
             self.local_ray_buffer.handle(),
             RayBufferData::region()
         );
-    }
-    
-    /// Sets the last raytraced origin to the in-progress (and now completed) one
-    pub(super) fn update_rt_origin(&mut self) {
-        self.last_rt_origin = self.in_progress_rt_origin
     }
 }
 

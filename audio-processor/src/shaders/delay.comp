@@ -17,12 +17,11 @@ const uint INITIAL_OFFSET = -(WINDOW_SIZE - FRAME_SIZE) + DELAY_BUFFER_SIZE; // 
 
 
 layout(push_constant, std430) uniform Camera {
-    mat3 rotation;
     vec3 position;
     uint frame_idx;
 } camera;
 
-layout(binding = 0, std430) restrict buffer AudioInstances {
+layout(binding = 0, std430) readonly restrict buffer AudioInstances {
     Instance instances[];
 };
 
@@ -54,15 +53,7 @@ uint delayed_index(float dist, uint instance_idx) {
 void main() {
     Instance instance = instances[gl_GlobalInvocationID.y];
     vec3 relative_position = instance.position - camera.position;
-    vec3 direction = camera.rotation * relative_position;
     float total_dist = length(relative_position) + instance.additional_dist;
-
-    // todo: this whole projection should probably not happen here, but in HRTF
-    //  it would also allow the instances to be readonly (performance win)
-    // If we are the first invocation for an instance, save it for the hrtf
-    if (gl_GlobalInvocationID.x == 0) {
-        instances[gl_GlobalInvocationID.y].position = direction;
-    }
 
     uint sample_idx = delayed_index(total_dist, instance.index);
     uint fft_idx = gl_GlobalInvocationID.y * WINDOW_SIZE + gl_GlobalInvocationID.x;
