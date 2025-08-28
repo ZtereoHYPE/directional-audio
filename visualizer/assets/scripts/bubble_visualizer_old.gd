@@ -3,17 +3,15 @@ extends MeshInstance3D
 const MAX_INSTANCE_AMOUNT := 64;
 const BUFFER_SIZE := 16 + 16 * MAX_INSTANCE_AMOUNT;
 
-const FACE_RESOLUTION := 128;
+const FACE_RESOLUTION := 64;
 
 @export
 var subdivision_amt := 64;
 
 var instance_amount := 0;
-var next_instances := PackedVector4Array([]);
 
 # RENDERING RESOURCES:
 var rd: RenderingDevice;
-var material: ShaderMaterial;
 
 # textures + buffers
 var heightmap_tex_main_handle: RID;
@@ -25,12 +23,11 @@ var scene_buffer: RID;
 # descriptors + pipelines
 var instance_descriptor_set: RID;
 var ripple_descriptor_set: RID;
-var next_to_current: RID;
-var combine_descriptor_set: RID;
+var blur_descriptor_set: RID;
 var instance_pipeline: RID;
 var ripple_pipeline: RID;
-var copy_pipeline: RID;
-var combine_pipeline: RID;
+var h_blur_pipeline: RID;
+var v_blur_pipeline: RID;
 
 var coord_faces: Array[Callable] = [
 	func top(x: float, y: float) -> Vector3:
@@ -62,7 +59,6 @@ func map_to_sphere(v: Vector3) -> Vector3:
 		v.y * sqrt(1.0 - z2/2.0 - x2/2.0 + z2*x2/3.0),
 		v.z * sqrt(1.0 - x2/2.0 - y2/2.0 + x2*y2/3.0),
 	)
-
 
 func create_box_sphere() -> ArrayMesh:
 	var vertices := PackedVector3Array()
@@ -140,12 +136,13 @@ func create_textures() -> void:
 	ripple_tex = [
 		rd.texture_create(fmt, RDTextureView.new()),
 		rd.texture_create(fmt, RDTextureView.new()),
-		rd.texture_create(fmt, RDTextureView.new()),
+		rd.texture_create(fmt, RDTextureView.new())
 	]
 	
 	rd.texture_clear(ripple_tex[0], Color(0.0,0.0,0.0), 0, 1, 0, 6);
 	rd.texture_clear(ripple_tex[1], Color(0.0,0.0,0.0), 0, 1, 0, 6);
-	rd.texture_clear(ripple_tex[1], Color(0.0,0.0,0.0), 0, 1, 0, 6);
+	rd.texture_clear(ripple_tex[2], Color(0.0,0.0,0.0), 0, 1, 0, 6);
+
 
 
 func create_instance_resources() -> void:
@@ -178,7 +175,7 @@ func create_instance_resources() -> void:
 	ripple_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE;
 	ripple_uniform.binding = 3;
 	ripple_uniform.add_id(ripple_tex[1])
-
+	
 	instance_descriptor_set = rd.uniform_set_create([scene_uniform, buffer_uniform, heightmap_uniform, ripple_uniform], shader, 0);
 	
 	# Create a compute pipeline
@@ -213,34 +210,15 @@ func create_ripple_resources() -> void:
 	ripple_pipeline = rd.compute_pipeline_create(shader);
 
 
-func create_copy_resources() -> void:
+func create_blur_resources() -> void:
 	# Load GLSL shaders
-	var shader_file := load("res://assets/shaders/copy_cubemap.glsl") as RDShaderFile;
+	var shader_file := load("res://assets/shaders/bubble_add.glsl") as RDShaderFile;
 	var shader_spirv := shader_file.get_spirv();
-	var copy_shader := rd.shader_create_from_spirv(shader_spirv);
+	var h_shader := rd.shader_create_from_spirv(shader_spirv);
 	
-	# create descriptor set
-	var next_uniform := RDUniform.new();
-	next_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE;
-	next_uniform.binding = 0;
-	next_uniform.add_id(ripple_tex[2]);
-	
-	var current_uniform := RDUniform.new();
-	current_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE;
-	current_uniform.binding = 1;
-	current_uniform.add_id(ripple_tex[1]);
-	
-	next_to_current = rd.uniform_set_create([next_uniform, current_uniform], copy_shader, 0);
-	
-	# Create a compute pipeline
-	copy_pipeline = rd.compute_pipeline_create(copy_shader);
-	
-	
-func create_combine_resources() -> void:
-	# Load GLSL shaders
-	var shader_file := load("res://assets/shaders/bubble_combine.glsl") as RDShaderFile;
-	var shader_spirv := shader_file.get_spirv();
-	var copy_shader := rd.shader_create_from_spirv(shader_spirv);
+	#shader_file = load("res://assets/shaders/bubble_blur_v.glsl") as RDShaderFile;
+	#shader_spirv = shader_file.get_spirv();
+	#var v_shader := rd.shader_create_from_spirv(shader_spirv);
 	
 	# create descriptor set
 	var heightmap_uniform := RDUniform.new();
@@ -248,15 +226,16 @@ func create_combine_resources() -> void:
 	heightmap_uniform.binding = 0;
 	heightmap_uniform.add_id(heightmap_tex);
 	
-	var ripple_uniform := RDUniform.new();
-	ripple_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE;
-	ripple_uniform.binding = 1;
-	ripple_uniform.add_id(ripple_tex[2]);
+	var ripple_tex_uniform := RDUniform.new();
+	ripple_tex_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE;
+	ripple_tex_uniform.binding = 1;
+	ripple_tex_uniform.add_id(ripple_tex[2]);
 	
-	combine_descriptor_set = rd.uniform_set_create([heightmap_uniform, ripple_uniform], copy_shader, 0);
+	blur_descriptor_set = rd.uniform_set_create([heightmap_uniform, ripple_tex_uniform], h_shader, 0);
 	
 	# Create a compute pipeline
-	combine_pipeline = rd.compute_pipeline_create(copy_shader);
+	h_blur_pipeline = rd.compute_pipeline_create(h_shader);
+	#v_blur_pipeline = rd.compute_pipeline_create(v_shader);
 
 
 func _ready() -> void:
@@ -268,14 +247,13 @@ func _ready() -> void:
 	create_textures();
 	create_instance_resources();
 	create_ripple_resources();
-	create_copy_resources();
-	create_combine_resources();
+	create_blur_resources();
 	
 	# set the current shader's texture parameter to the right texture!
 	var drawing_texture := TextureCubemapRD.new();
 	drawing_texture.texture_rd_rid = heightmap_tex_main_handle;
 	
-	material = ShaderMaterial.new()
+	var material := ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/bubble.gdshader") as Shader
 	material.set_shader_parameter("heightmap", drawing_texture)
 	mesh.surface_set_material(0, material)
@@ -288,67 +266,44 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	# Lock the rotation to 0 to prevent the head rotation from messing up the locations
 	global_rotation = Vector3(0, 0, 0);
-	global_position = Vector3(5, 1.5, -6);
-	material.set_shader_parameter("center", global_position)
-	#
-	#if !Input.is_action_pressed("next_frame"):
-		#return;
-		
-	rd.texture_clear(heightmap_tex, Color.BLACK, 0, 1, 0, 6);
-
-	# Update scene data
-	var random_intensity = randf();
-	instance_amount = next_instances.size();
-	var instance_bytes := next_instances.to_byte_array();
+	global_position = Vector3(5, 1.5, 1);
+	
+	# Update scene uniform
 	rd.buffer_update(scene_buffer, 0, 12, PackedVector3Array([($".." as Node3D).global_position]).to_byte_array());
-	rd.buffer_update(scene_buffer, 12, 4, PackedInt32Array([instance_amount]).to_byte_array());
-	rd.buffer_update(instance_buffer, 0, 16, PackedVector2Array([Vector2(random_intensity, random_intensity), Vector2.ZERO]).to_byte_array());
-	rd.buffer_update(instance_buffer, 16, instance_bytes.size(), instance_bytes);
+	
+	if !Input.is_action_just_pressed("next_frame"):
+		return
+	
+	# Clear heightmap to prepare for new data
+	#rd.texture_clear(heightmap_tex, Color(0.0,0.0,0.0), 0, 1, 0, 6);
 
 	# Dispatch compute shaders
 	var compute_list := rd.compute_list_begin();
 	if instance_amount != 0:
+		print("rendered instances!")
 		rd.compute_list_bind_compute_pipeline(compute_list, instance_pipeline);
 		rd.compute_list_bind_uniform_set(compute_list, instance_descriptor_set, 0);
 		@warning_ignore("integer_division")
-		rd.compute_list_dispatch(compute_list, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
-	rd.compute_list_end();
-	rd.submit();
-	rd.sync();
+		rd.compute_list_dispatch(compute_list, (instance_amount + 63) / 64, 1, 1);
 	
-	var compute_list_1 := rd.compute_list_begin();
-
-	rd.compute_list_bind_compute_pipeline(compute_list_1, ripple_pipeline);
-	rd.compute_list_bind_uniform_set(compute_list_1, ripple_descriptor_set, 0);
-	rd.compute_list_dispatch(compute_list_1, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
-	rd.compute_list_end();
-	rd.submit();
-	rd.sync();
+	rd.compute_list_bind_compute_pipeline(compute_list, ripple_pipeline);
+	rd.compute_list_bind_uniform_set(compute_list, ripple_descriptor_set, 0);
+	rd.compute_list_dispatch(compute_list, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
 	
-	var compute_list_2 := rd.compute_list_begin();
-
-	# Combine the results
-	rd.compute_list_bind_compute_pipeline(compute_list_2, combine_pipeline);
-	rd.compute_list_bind_uniform_set(compute_list_2, combine_descriptor_set, 0);
-	rd.compute_list_dispatch(compute_list_2, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
-	rd.compute_list_end();
-	rd.submit();
-	rd.sync();
+	rd.compute_list_bind_uniform_set(compute_list, blur_descriptor_set, 0);
+	rd.compute_list_bind_compute_pipeline(compute_list, h_blur_pipeline);
+	rd.compute_list_dispatch(compute_list, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
 	
-	var compute_list_3 := rd.compute_list_begin();
-
 	# Shift the ripple textures
-	rd.compute_list_bind_compute_pipeline(compute_list_3, copy_pipeline);
-	rd.compute_list_bind_uniform_set(compute_list_3, next_to_current, 0);
-	rd.compute_list_dispatch(compute_list_3, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
+		#rd.texture_copy(ripple_tex[1], ripple_tex[0], Vector3.ZERO, Vector3.ZERO, Vector3(FACE_RESOLUTION, FACE_RESOLUTION, 1), 0, 0, face, face);
+	
 	rd.compute_list_end();
 	rd.submit();
 	rd.sync();
-
+	
+	# For some reason, this is causing issues! This makes no sense!
+	#for face in range(6):
+		#rd.texture_copy(ripple_tex[2], ripple_tex[1], Vector3.ZERO, Vector3.ZERO, Vector3(FACE_RESOLUTION, FACE_RESOLUTION, 1), 0, 0, 1, 1);
 
 func _exit_tree() -> void:
 	pass; # todo: cleanups
@@ -359,5 +314,13 @@ func _exit_tree() -> void:
 	#rd.free_rid(instance_pipeline);
 
 
+func update_visualization_data(instances: PackedVector4Array, volumes: Vector2, prev_volumes: Vector2) -> void:
+	instance_amount = instances.size();
+	rd.buffer_update(scene_buffer, 12, 4, PackedInt32Array([instance_amount]).to_byte_array());
+	rd.buffer_update(instance_buffer, 0, 16, PackedVector2Array([volumes, prev_volumes]).to_byte_array());
+	var instance_bytes := instances.to_byte_array();
+	rd.buffer_update(instance_buffer, 16, instance_bytes.size(), instance_bytes);
+
+
 func _on_audio_listener_node_visualization_data_received(data: GodotVisualizationData) -> void:
-	next_instances = data.instances;
+	update_visualization_data(data.instances, Vector2.ONE, Vector2.ZERO);

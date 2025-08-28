@@ -1,30 +1,56 @@
 #define PI 3.1415
-const int FACE_RESOLUTION = 64;
-
+const int FACE_RESOLUTION = 128;
 
 ivec3 direction_to_cubemap(vec3 direction) {
     vec3 abs_dir = abs(direction);
     int face_idx;
     vec2 tex_coord;
 
-    // todo: ensure that this is what the cubemap sampler is doing
     if (abs_dir.x > abs_dir.y && abs_dir.x > abs_dir.z) {
         face_idx = direction.x > 0.0 ? 0 : 1; // Positive X or Negative X
-        int flip = face_idx == 0 ? -1 : 1;
+        int flip = direction.x > 0.0 ? -1 : 1;
         tex_coord = vec2(flip * direction.z / abs_dir.x, -direction.y / abs_dir.x);
     } else if (abs_dir.y > abs_dir.z) {
         face_idx = direction.y > 0.0 ? 2 : 3; // Positive Y or Negative Y
-        int flip = face_idx == 2 ? 1 : -1;
+        int flip = direction.y > 0.0 ? 1 : -1;
         tex_coord = vec2(direction.x / abs_dir.y, flip * direction.z / abs_dir.y);
     } else {
         face_idx = direction.z > 0.0 ? 4 : 5; // Positive Z or Negative Z
-        int flip = face_idx == 4 ? 1 : -1;
+        int flip = direction.z > 0.0 ? 1 : -1;
         tex_coord = vec2(flip * direction.x / abs_dir.z, -direction.y / abs_dir.z);
     }
 
     tex_coord = (tex_coord * 0.5 + 0.5) * FACE_RESOLUTION;
 
     return ivec3(ivec2(round(tex_coord)), face_idx);
+}
+
+vec3 cubemap_to_direction(ivec3 cubemap) {
+    ivec2 texel = cubemap.xy;
+    int face = cubemap.z;
+
+    // convert texel coordinate to [-1, 1] range, center-aligned
+    vec2 uv = (vec2(texel) + 0.5) / FACE_RESOLUTION;
+    uv = uv * 2.0 - 1.0;
+
+    vec3 direction;
+
+    // map from face and uv to 3D direction
+    if (face == 0) {         // +X
+        direction = vec3(1.0, -uv.y, -uv.x);
+    } else if (face == 1) {  // -X
+        direction = vec3(-1.0, -uv.y, uv.x);
+    } else if (face == 2) {  // +Y
+        direction = vec3(uv.x, 1.0, uv.y);
+    } else if (face == 3) {  // -Y
+        direction = vec3(uv.x, -1.0, -uv.y);
+    } else if (face == 4) {  // +Z
+        direction = vec3(uv.x, -uv.y, 1.0);
+    } else if (face == 5) {  // -Z
+        direction = vec3(-uv.x, -uv.y, -1.0);
+    }
+
+    return normalize(direction);
 }
 
 const int wraps[] = {
@@ -40,8 +66,8 @@ const int wraps[] = {
 ivec3 cubemap_offset_sample(ivec3 origin, ivec2 offset) {
     uint bottom = uint(origin.y == FACE_RESOLUTION - 1);
     uint top = uint(origin.y == 0);
-    uint right = uint(origin.x == 0);
-    uint left = uint(origin.x == FACE_RESOLUTION - 1);
+    uint left = uint(origin.x == 0);
+    uint right = uint(origin.x == FACE_RESOLUTION - 1);
 
 //    return origin + ivec3(offset, 0);
 

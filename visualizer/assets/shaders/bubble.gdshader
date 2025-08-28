@@ -1,22 +1,21 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 
+//uniform samplerCube heightmap : filter_nearest;
 uniform samplerCube heightmap : filter_nearest;
+uniform vec3 center;
 
-vec3 get_face_normal(vec3 vertex) {
-	vec3 dx = dFdx(vertex);
-	vec3 dy = dFdy(vertex);
-
-	return normalize(cross(dy, dx));
-}
+varying vec3 world_normal;
 
 void vertex() {
-	//VERTEX += texture(heightmap, NORMAL + vec3(0.0001, 0.0001, 0.0001)).x * NORMAL;
+	VERTEX += texture(heightmap, NORMAL + vec3(0.0001, 0.0001, 0.0001)).x * NORMAL * 0.5;
+	NORMAL = normalize((MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz - center);
+	world_normal = NORMAL;
 }
 
 void fragment() {
-	NORMAL = get_face_normal(VERTEX);
-	vec3 world_normal = (INV_VIEW_MATRIX * vec4(NORMAL.xyz, 0.0)).xyz;
+	//NORMAL = get_face_normal(VERTEX);
+	//NORMAL = sphere_normal;
 
 	//vec3 color = mix(vec3(0,0.5,1), vec3(1,0,0), bump.w*bump.w);
 	ALBEDO = texture(heightmap, world_normal).xyz;
