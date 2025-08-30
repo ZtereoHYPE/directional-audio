@@ -1,15 +1,14 @@
 extends MeshInstance3D
 
 const MAX_INSTANCE_AMOUNT := 64;
-const BUFFER_SIZE := 16 + 16 * MAX_INSTANCE_AMOUNT;
+const BUFFER_SIZE := 32 * MAX_INSTANCE_AMOUNT;
 
 const FACE_RESOLUTION := 128;
 
 @export
-var subdivision_amt := 64;
+var subdivision_amt := 128;
 
-var instance_amount := 0;
-var next_instances := PackedVector4Array([]);
+var visualization_data: GodotVisualizationData;
 
 # RENDERING RESOURCES:
 var rd: RenderingDevice;
@@ -251,7 +250,7 @@ func create_combine_resources() -> void:
 	var ripple_uniform := RDUniform.new();
 	ripple_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE;
 	ripple_uniform.binding = 1;
-	ripple_uniform.add_id(ripple_tex[2]);
+	ripple_uniform.add_id(ripple_tex[1]);
 	
 	combine_descriptor_set = rd.uniform_set_create([heightmap_uniform, ripple_uniform], copy_shader, 0);
 	
@@ -280,9 +279,9 @@ func _ready() -> void:
 	material.set_shader_parameter("heightmap", drawing_texture)
 	mesh.surface_set_material(0, material)
 	
-	instance_amount = 1;
 	var instance_bytes := PackedVector4Array([Vector4(0, 2, 0, 0)]).to_byte_array();
 	rd.buffer_update(instance_buffer, 16, instance_bytes.size(), instance_bytes);
+	rd.buffer_update(scene_buffer, 12, 4, PackedInt32Array([1]).to_byte_array());
 
 
 func _process(_delta: float) -> void:
@@ -290,21 +289,19 @@ func _process(_delta: float) -> void:
 	global_rotation = Vector3(0, 0, 0);
 	global_position = Vector3(5, 1.5, -6);
 	material.set_shader_parameter("center", global_position)
-	#
-	#if !Input.is_action_pressed("next_frame"):
-		#return;
-		
-	rd.texture_clear(heightmap_tex, Color.BLACK, 0, 1, 0, 6);
+	
+	if visualization_data == null:
+		return;
 
+	rd.texture_clear(heightmap_tex, Color.BLACK, 0, 1, 0, 6);
+	
 	# Update scene data
-	var random_intensity = randf();
-	instance_amount = next_instances.size();
-	var instance_bytes := next_instances.to_byte_array();
+	var next_instances := visualization_data.get_instance_buffer($"../AudioListenerNode" as AudioListenerNode);
+	var instance_amount := visualization_data.instance_amount;
 	rd.buffer_update(scene_buffer, 0, 12, PackedVector3Array([($".." as Node3D).global_position]).to_byte_array());
 	rd.buffer_update(scene_buffer, 12, 4, PackedInt32Array([instance_amount]).to_byte_array());
-	rd.buffer_update(instance_buffer, 0, 16, PackedVector2Array([Vector2(random_intensity, random_intensity), Vector2.ZERO]).to_byte_array());
-	rd.buffer_update(instance_buffer, 16, instance_bytes.size(), instance_bytes);
-
+	rd.buffer_update(instance_buffer, 0, next_instances.size(), next_instances);
+	
 	# Dispatch compute shaders
 	var compute_list := rd.compute_list_begin();
 	if instance_amount != 0:
@@ -312,39 +309,39 @@ func _process(_delta: float) -> void:
 		rd.compute_list_bind_uniform_set(compute_list, instance_descriptor_set, 0);
 		@warning_ignore("integer_division")
 		rd.compute_list_dispatch(compute_list, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
+	
 	rd.compute_list_end();
 	rd.submit();
 	rd.sync();
 	
 	var compute_list_1 := rd.compute_list_begin();
-
+	
 	rd.compute_list_bind_compute_pipeline(compute_list_1, ripple_pipeline);
 	rd.compute_list_bind_uniform_set(compute_list_1, ripple_descriptor_set, 0);
 	rd.compute_list_dispatch(compute_list_1, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
+	
 	rd.compute_list_end();
 	rd.submit();
 	rd.sync();
 	
 	var compute_list_2 := rd.compute_list_begin();
-
+	
 	# Combine the results
 	rd.compute_list_bind_compute_pipeline(compute_list_2, combine_pipeline);
 	rd.compute_list_bind_uniform_set(compute_list_2, combine_descriptor_set, 0);
 	rd.compute_list_dispatch(compute_list_2, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
+	
 	rd.compute_list_end();
 	rd.submit();
 	rd.sync();
 	
 	var compute_list_3 := rd.compute_list_begin();
-
+	
 	# Shift the ripple textures
 	rd.compute_list_bind_compute_pipeline(compute_list_3, copy_pipeline);
 	rd.compute_list_bind_uniform_set(compute_list_3, next_to_current, 0);
 	rd.compute_list_dispatch(compute_list_3, FACE_RESOLUTION / 8, FACE_RESOLUTION / 8, 6);
-
+	
 	rd.compute_list_end();
 	rd.submit();
 	rd.sync();
@@ -360,4 +357,4 @@ func _exit_tree() -> void:
 
 
 func _on_audio_listener_node_visualization_data_received(data: GodotVisualizationData) -> void:
-	next_instances = data.instances;
+	visualization_data = data;

@@ -22,11 +22,11 @@ void main() {
     if (coords.x >= FACE_RESOLUTION || coords.y >= FACE_RESOLUTION)
         return;
 
+    float up =      imageLoad(curr_ripple_tex, cubemap_offset_sample(coords, ivec2(0,  1))).x;
+    float down =    imageLoad(curr_ripple_tex, cubemap_offset_sample(coords, ivec2(0, -1))).x;
+    float left =    imageLoad(curr_ripple_tex, cubemap_offset_sample(coords, ivec2(-1, 0))).x;
+    float right =   imageLoad(curr_ripple_tex, cubemap_offset_sample(coords, ivec2(1,  0))).x;
     float curr =    imageLoad(curr_ripple_tex, coords).x;
-    float up =      imageLoad(curr_ripple_tex, coords + ivec3(0,  1, 0)).x;
-    float down =    imageLoad(curr_ripple_tex, coords + ivec3(0, -1, 0)).x;
-    float left =    imageLoad(curr_ripple_tex, coords + ivec3(-1, 0, 0)).x;
-    float right =   imageLoad(curr_ripple_tex, coords + ivec3(1,  0, 0)).x;
     float vel =     imageLoad(velocity_ripple_tex, coords).x;
 
     float f = speed * speed * (up + down + left + right - 4 * curr) / (cell_dist * cell_dist);
@@ -35,12 +35,4 @@ void main() {
 
     imageStore(velocity_ripple_tex, coords, vec4(new_vel));
     imageStore(next_ripple_tex, coords, vec4(new_height * height_dampening_factor));
-
-//    for (int i = 0; i < FACE_RESOLUTION / 2; i++) {
-//        for (int j = 0; j < FACE_RESOLUTION / 2; j++) {
-////            imageStore(next_ripple_tex, ivec3(i, j, 4), vec4(0.5));
-//            imageStore(next_ripple_tex, cubemap_offset_sample(ivec3(i, j, 4), ivec2(0, 1)), vec4(1));
-//        }
-//    }
 }
-

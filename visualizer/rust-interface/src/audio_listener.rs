@@ -7,7 +7,7 @@ use audio_processor::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
 use audio_processor::scene::source::FRAME_SIZE;
 use audio_processor::scene::Scene;
 use audio_processor::util::rotation_matrix;
-use audio_processor::AudioEngineMonitor;
+use audio_processor::{AudioEngineMonitor, Loudness};
 use godot::classes::audio_stream_generator::AudioStreamGeneratorMixRate;
 use godot::classes::AudioStreamGenerator;
 use godot::classes::AudioStreamGeneratorPlayback;
@@ -42,6 +42,9 @@ pub struct AudioListenerNode {
     audio_stream_player: Gd<AudioStreamPlayer>, // warning: never gets free'd
     audio_engine: Option<AudioEngineMonitor>,
 
+    pub loudness: Loudness,
+    pub previous_loudness: Loudness,
+
     base: Base<Node3D>
 }
 
@@ -69,6 +72,8 @@ impl INode3D for AudioListenerNode {
             last_rotation: Vector3::ZERO,
             audio_stream_player,
             audio_engine: None,
+            loudness: [0.0; 64],
+            previous_loudness: [0.0; 64],
             base
         }
     }
@@ -89,16 +94,30 @@ impl INode3D for AudioListenerNode {
             let max_frames = usize::min(playback.get_frames_available() as usize / FRAME_SIZE, self.allowed_samples as usize);
             self.allowed_samples -= max_frames as f64;
             
-            let frames = engine.get_frames(max_frames)
+            let frames = engine.get_frames(max_frames);
+            let samples = frames
                 .iter()
-                .flat_map(|(l, r)| l.iter().zip(r))
+                .flat_map(|(l, r, _)| l.iter().zip(r))
                 .map(|(&l, &r)| Vector2::new(l * self.volume, r * self.volume))
                 .collect::<PackedVector2Array>();
 
-            playback.push_buffer(&frames);
+            playback.push_buffer(&samples);
+
+            // Update loudness buffers
+            match frames.len() {
+                0 => {},
+                1 => {
+                    self.previous_loudness = self.loudness.clone();
+                    self.loudness = *frames[0].2
+                },
+                len => {
+                    self.previous_loudness = *frames[len - 2].2;
+                    self.loudness = *frames[len - 1].2;
+                }
+            }
 
             if self.export_audio {
-                self.accumulated_samples.extend_from_slice(frames.as_slice())
+                self.accumulated_samples.extend_from_slice(samples.as_slice())
             }
         }
 
@@ -128,7 +147,7 @@ impl INode3D for AudioListenerNode {
             engine.update_listener(to_vec(position).into(), rotation_matrix(rotation.x, rotation.y));
         }
 
-        engine.request_debug(); // for now, only request debug once per tick. Later do once per frame.
+        engine.request_debug();
     }
 
     fn enter_tree(&mut self) {

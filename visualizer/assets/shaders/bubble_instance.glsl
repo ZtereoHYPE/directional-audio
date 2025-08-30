@@ -11,20 +11,19 @@ layout(binding = 0) readonly uniform Scene {
     uint instance_amount;
 };
 
+struct Instance {
+    vec3 position;
+    float cluster_size;
+    float loudness;
+    float prev_loudness;
+};
+
 layout(binding = 1, std430) readonly restrict buffer AudioData {
-    vec2 prev_audio_strength; // Left and Right strength
-    vec2 audio_strength; // Left and Right strength
-    vec3 instances[]; // todo: include other instance data to influence visualzation?
+    Instance instances[];
 };
 
 layout(binding = 2, r32f) writeonly uniform imageCube heightmap_tex;
 layout(binding = 3, r32f) writeonly uniform imageCube ripple_tex;
-
-float get_intensity(vec2 strength, vec3 direction) {
-    // todo: use a different horizontal axys depending on the camera rotation
-    float factor = direction.x * 0.5 + 0.5;
-    return mix(strength.x, strength.y, factor);
-}
 
 void main() {
     ivec3 tex_coords = ivec3(gl_GlobalInvocationID.xyz);
@@ -36,19 +35,27 @@ void main() {
 
     // todo: optimize using workgroups
     float height = 0.0;
+    float ripple_height = 0.0;
     for (int idx = 0; idx < instance_amount; idx++) {
-        vec3 instance_dir = -normalize(instances[idx] - camera_position);
+        Instance instance = instances[idx];
+        vec3 instance_dir = -normalize(instance.position - camera_position);
         float dist = distance(local_direction, instance_dir);
 
-        // Spawn a ripple if we are on the tip pixel
-        if (dist <= 1.0 / FACE_RESOLUTION)
-            imageStore(ripple_tex, tex_coords, vec4(0.5));
+        // Vary the width based on how much is clustered
+        float width = float(clamp(1, 1, 40)) / 40.0;
+        float stddev_2 = 0.0055 + width * 0.015;
 
         // Calculate the height added from the instance
-        const float STDEV_2 = 0.008;
-        float value = exp(-(dist * dist / STDEV_2));
-        height += value;
+        float value = exp(-(dist * dist / stddev_2));
+        height += value * (instance.loudness * 0.2 + 1.0);
+
+        // If we're at the tip of the bell curve, add a ripple
+        if (value > 0.98)
+            ripple_height += max(instance.loudness - instance.prev_loudness, 0.0);
     }
 
     imageStore(heightmap_tex, tex_coords, vec4(height));
+
+    if (ripple_height > 0.0)
+        imageStore(ripple_tex, tex_coords, vec4(ripple_height));
 }

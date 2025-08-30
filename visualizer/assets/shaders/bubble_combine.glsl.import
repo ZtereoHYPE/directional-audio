@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cbi4jfyq02u0s"
+path="res://.godot/imported/bubble_combine.glsl-4c698130cfee0ff40094e68f401f2ddd.res"
+
+[deps]
+
+source_file="res://assets/shaders/bubble_combine.glsl"
+dest_files=["res://.godot/imported/bubble_combine.glsl-4c698130cfee0ff40094e68f401f2ddd.res"]
+
+[params]
+
