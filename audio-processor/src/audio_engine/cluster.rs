@@ -190,11 +190,12 @@ impl ClusterModule {
                     avg += point.clone();
                 }
 
-                let cluster_size = cluster.len() as f32;
+                let cluster_size = cluster.len() as u32;
                 total_instances.push(AudioInstance {
-                    direction: avg.direction / cluster_size,
-                    distance: avg.distance / cluster_size,
-                    attenuation: avg.attenuation / cluster_size,
+                    direction: avg.direction / cluster_size as f32,
+                    distance: avg.distance / cluster_size as f32,
+                    attenuation: avg.attenuation / cluster_size as f32,
+                    cluster_size,
                     index: source_idx as u32,
                 });
             }

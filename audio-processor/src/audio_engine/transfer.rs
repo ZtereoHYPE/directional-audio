@@ -17,12 +17,13 @@ use std::thread::JoinHandle;
 use vk_mem::Allocator;
 use crate::audio_engine::{AudioSyncStage, GpuFrame, GpuWindow, RtSyncStage};
 use crate::audio_engine::fft::FftModule;
+use crate::audio_engine::hrtf::LoudnessBufferData;
 use crate::audio_engine::rays::RtOutputBufferData;
 use crate::VisualizationData;
 use crate::vulkan::in_flight::{InFlight, InFlightCounter};
 use crate::vulkan::queue::VulkanQueue;
 
-type Task = Box<dyn Fn(&mut LocalVulkanBuffer<DownloadBufferData>) + Send>;
+type Task = Box<dyn Fn(&mut LocalVulkanBuffer<DownloadBufferData>, &mut LocalVulkanBuffer<LoudnessBufferData>) + Send>;
 
 pub struct TransferModule {
     device: Device,
@@ -30,9 +31,11 @@ pub struct TransferModule {
 
     upload_buffer: LocalVulkanBuffer<UploadBufferData>,
     download_buffer_handle: Buffer,
+    local_loudness_buffer_handle: Buffer,
 
     input_buffer_handle: Buffer,
     output_buffer_handles: InFlight<Buffer>,
+    loudness_buffer_handles: InFlight<Buffer>,
 
     submit_thread: JoinHandle<()>,
     submit_queue: Sender<Task>,
@@ -45,7 +48,8 @@ impl TransferModule {
         queue: VulkanQueue,
         frames_in_flight: usize,
         input_buffer: &VulkanBuffer<DelayBufferData>,
-        output_buffer: &InFlight<VulkanBuffer<DownloadBufferData>>,
+        output_buffers: &InFlight<VulkanBuffer<DownloadBufferData>>,
+        loudness_buffers: &InFlight<VulkanBuffer<LoudnessBufferData>>,
     ) -> TransferModule {
         let upload_buffer = LocalVulkanBuffer::new_inline(
             BufferUsageFlags::TRANSFER_SRC,
@@ -58,20 +62,30 @@ impl TransferModule {
         let submit_thread = thread::spawn(move || {
             let mut download_buffer: LocalVulkanBuffer<DownloadBufferData> =
                 LocalVulkanBuffer::new_inline(BufferUsageFlags::TRANSFER_DST, allocator.clone());
-            
+
+            let mut loudness_buffer: LocalVulkanBuffer<LoudnessBufferData> =
+                LocalVulkanBuffer::new_inline(BufferUsageFlags::TRANSFER_DST, allocator.clone());
+
             handle_sender.send(download_buffer.handle());
+            handle_sender.send(loudness_buffer.handle());
 
             loop {
                 let task: Task = submit_receiver.recv().unwrap();
-                task(&mut download_buffer);
+                task(&mut download_buffer, &mut loudness_buffer);
             }
         });
 
         let download_buffer_handle = handle_receiver.recv().unwrap();
+        let local_loudness_buffer_handle = handle_receiver.recv().unwrap();
 
         let output_buffer_handles = InFlight::create(
             frames_in_flight,
-            |idx| output_buffer.0[idx].handle()
+            |idx| output_buffers.0[idx].handle()
+        );
+
+        let loudness_buffer_handles = InFlight::create(
+            frames_in_flight,
+            |idx| loudness_buffers.0[idx].handle()
         );
 
         TransferModule {
@@ -81,6 +95,8 @@ impl TransferModule {
             download_buffer_handle,
             input_buffer_handle: input_buffer.handle(),
             output_buffer_handles,
+            loudness_buffer_handles,
+            local_loudness_buffer_handle,
             submit_thread,
             submit_queue
         }
@@ -135,6 +151,13 @@ impl TransferModule {
             *command_buffer,
             self.output_buffer_handles[counter],
             self.download_buffer_handle,
+            DownloadBufferData::region()
+        );
+        
+        self.device.cmd_copy_buffer(
+            *command_buffer,
+            self.loudness_buffer_handles[counter],
+            self.local_loudness_buffer_handle,
             DownloadBufferData::region()
         );
     }

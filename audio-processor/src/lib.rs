@@ -1,7 +1,7 @@
 #![allow(unused)]
 extern crate core;
 
-mod audio_engine;
+pub mod audio_engine;
 pub mod scene;
 pub mod util;
 mod vulkan;
@@ -16,6 +16,9 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+use crate::audio_engine::gpu_constants::MAX_INSTANCES;
+
+pub type Loudness = [f32; MAX_INSTANCES];
 
 pub struct VisualizationData {
     pub last_rt_origin: Vec3,
@@ -37,7 +40,7 @@ struct StateUpdates {
 
 pub struct AudioEngineMonitor {
     state: Arc<Mutex<StateUpdates>>,
-    frame_rx: Receiver<(Frame, Frame)>,
+    frame_rx: Receiver<(Frame, Frame, Box<Loudness>)>,
     debug_rx: Receiver<VisualizationData>,
     action_tx: Sender<EngineAction>,
     vulkan_thread: JoinHandle<()>
@@ -99,7 +102,7 @@ impl AudioEngineMonitor {
         self.action_tx.send(EngineAction::RequestVisData).unwrap();
     }
 
-    pub fn get_frames(&self, max: usize) -> Vec<(Frame, Frame)> {
+    pub fn get_frames(&self, max: usize) -> Vec<(Frame, Frame, Box<Loudness>)> {
         self.frame_rx.try_iter().take(max).collect()
     }
 
@@ -117,7 +120,7 @@ impl AudioEngineMonitor {
     fn vulkan_thread_job(
         mut engine: AudioEngine,
         scene_state: Arc<Mutex<StateUpdates>>,
-        frame_tx: SyncSender<(Frame, Frame)>,
+        frame_tx: SyncSender<(Frame, Frame, Box<Loudness>)>,
         debug_tx: Sender<VisualizationData>,
         action_rx: Receiver<EngineAction>
     ) {
@@ -153,8 +156,8 @@ impl AudioEngineMonitor {
 
             let sender_copy = frame_tx.clone();
             engine.request_frame(
-                move |left, right| {
-                    sender_copy.send((left, right)).unwrap()
+                move |left, right, loudness| {
+                    sender_copy.send((left, right, loudness)).unwrap()
                 },
                 debug_callback
             );

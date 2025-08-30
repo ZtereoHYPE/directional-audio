@@ -6,14 +6,14 @@ use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_SOURCES};
 #[allow(unsafe_op_in_unsafe_fn)]
 
 use crate::audio_engine::gpu_constants::{MAX_INSTANCES, SLIDING_WINDOW_FRAME_AMT};
-use crate::audio_engine::hrtf::HrtfModule;
+use crate::audio_engine::hrtf::{HrtfModule, LoudnessBufferData};
 use crate::audio_engine::rays::RayModule;
 use crate::scene::source::{Frame, FRAME_SIZE};
 use crate::scene::Scene;
 use crate::vulkan::buffer::{InlineBufferData, LocalVulkanBuffer, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use crate::vulkan::{debug_callback, get_device_score};
-use crate::VisualizationData;
+use crate::{Loudness, VisualizationData};
 use ash::ext::debug_utils;
 use ash::prelude::VkResult;
 use ash::vk::{ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceCreateInfo, DeviceQueueCreateInfo, Fence, FenceCreateFlags, FenceCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, PhysicalDeviceTimelineSemaphoreFeatures, PhysicalDeviceType, PipelineStageFlags, Queue, Semaphore, SemaphoreCreateInfo, SemaphoreSignalInfo, SemaphoreType, SemaphoreTypeCreateInfo, SemaphoreWaitInfo, SubmitInfo, TimelineSemaphoreSubmitInfo};
@@ -29,7 +29,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::fence;
 use std::time::Instant;
-use itertools::izip;
+use itertools::{enumerate, izip};
 use vk_mem::{Allocator, AllocatorCreateInfo};
 use crate::audio_engine::transfer::{DownloadBufferData, TransferModule};
 use crate::util::complex::from;
@@ -51,7 +51,6 @@ pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 
 /// Represents the window used for partitioned convolution
 pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
-
 
 pub struct AudioEngine {
     scene: Scene,
@@ -373,6 +372,7 @@ impl AudioEngine {
             frames_in_flight,
             &delay_module.delay_buffer,
             &hrtf_module.output_buffers,
+            &hrtf_module.loudness_buffers
         );
 
         let ray_module = RayModule::new(
@@ -438,7 +438,7 @@ impl AudioEngine {
 
     pub(crate) fn request_frame<F, D>(&mut self, frame_consumer: F, debug_consumer: Option<D>)
     where
-        F: Fn(Frame, Frame) + Send + 'static,
+        F: Fn(Frame, Frame, Box<Loudness>) + Send + 'static,
         D: Fn(VisualizationData)
     { unsafe {
         let request_debug_data = debug_consumer.is_some();
@@ -465,8 +465,10 @@ impl AudioEngine {
         self.frame_counter += 1;
     }}
 
-    // from signal processor
-    unsafe fn request_audio(&mut self, consumer: impl Fn(Frame, Frame) + Send + 'static, update_instances: bool) -> VkResult<()> {
+    unsafe fn request_audio<T>(&mut self, consumer: T, update_instances: bool) -> VkResult<()>
+    where
+        T: Fn(Frame, Frame, Box<Loudness>) + Send + 'static
+    {
         let start_time = Instant::now();
 
         self.cluster_module.update_instances(); // we know that these won't change until the compute is done
@@ -577,7 +579,8 @@ impl AudioEngine {
         let device = self.device.clone();
         let thread_timeline = timeline.clone();
         self.transfer_module.schedule_submit_task(Box::new(move |
-            download_buffer: &mut LocalVulkanBuffer<DownloadBufferData>
+            download_buffer: &mut LocalVulkanBuffer<DownloadBufferData>,
+            loudness_buffer: &mut LocalVulkanBuffer<LoudnessBufferData>
         | unsafe {
             let thread_initial_time = Instant::now();
 
@@ -595,7 +598,9 @@ impl AudioEngine {
 
             // Get the data from the local buffer
             download_buffer.invalidate();
+            loudness_buffer.invalidate();
             let (left_window, right_window) = download_buffer.buffer_data().get_windows();
+            let loudness_data = Box::from(loudness_buffer.buffer_data().clone());
 
             // Signal that the audio sync is finished, and the next download can start
             let (signal_semaphores, signal_values) = thread_timeline.get_signal_info(counter, AudioSyncStage::Submit);
@@ -606,19 +611,18 @@ impl AudioEngine {
 
             let copy_time = Instant::now();
 
-            // Transform the data into frames
+            // Transform the data
             let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
             let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
+            let loudness = process_loudness_data(loudness_data);
 
-            // todo: AVOID COPIES, perhaps make a single function that does all of this
-            let (start, end) = DownloadBufferData::last_frame_range();
-            let left = gpu_to_frame(&GpuFrame::try_from(&left[start..end]).unwrap());
-            let right = gpu_to_frame(&GpuFrame::try_from(&right[start..end]).unwrap());
+            let left = crop_window_to_frame(&left);
+            let right = crop_window_to_frame(&right);
 
             let misha_time = Instant::now();
 
             // Submit to consumer
-            consumer(left, right);
+            consumer(left, right, loudness);
 
             println!("Submit thread time elapsed: wait {:?}; copy+signal {:?}; misha {:?}; submit {:?}", execution_time - thread_initial_time, copy_time - execution_time, misha_time - copy_time, misha_time.elapsed())
         }));
@@ -631,7 +635,6 @@ impl AudioEngine {
         Ok(())
     }
 
-    // todo: currently this updates the only instance buffer: might cause bad reads!
     unsafe fn update_instances(&mut self, store_rays: bool) -> VkResult<bool> {
         if store_rays {
             self.ray_module.copy_next_debug = true;
@@ -764,7 +767,6 @@ impl PipelineStage for AudioSyncStage {
 }
 
 pub(crate) fn frame_to_gpu(frame: &Frame) -> GpuFrame {
-    // todo: avoid initialization here
     let mut samples = [Vec2::ZERO; FRAME_SIZE];
 
     for (idx, value) in frame.iter().enumerate() {
@@ -774,11 +776,14 @@ pub(crate) fn frame_to_gpu(frame: &Frame) -> GpuFrame {
     samples
 }
 
-pub(crate) fn gpu_to_frame(input: &GpuFrame) -> Frame {
-    let mut frame: Frame = [0.0; FRAME_SIZE];
+pub(crate) fn crop_window_to_frame(window: &Vec<Vec2>) -> Frame {
+    assert_eq!(window.len(), GPU_WINDOW_SIZE);
 
-    for (idx, value) in input.iter().enumerate() {
-        frame[idx] = value.x;
+    let (start, end) = DownloadBufferData::last_frame_range();
+
+    let mut frame: Frame = [0.0; FRAME_SIZE];
+    for (frame_idx, window_idx) in (start..end).enumerate() {
+        frame[frame_idx] = window[window_idx].x;
     }
 
     frame
@@ -790,6 +795,18 @@ pub(crate) unsafe fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> { unsafe
     (flat_window as Box<[_]>).into_vec() // turn the box into a vector
 }}
 
+fn process_loudness_data(loudness_data: Box<LoudnessBufferData>) -> Box<Loudness> {
+    let mut loudness = [0.0; MAX_INSTANCES];
+
+    for (idx, instance) in loudness_data.loudnesses.iter().enumerate() {
+        // average decibels, skipping DC component
+        let sum: f32 = instance.iter().skip(1).sum();
+        loudness[idx] = sum / (GPU_WINDOW_SIZE - 1) as f32;
+    }
+
+    Box::from(loudness)
+}
+
 
 #[repr(align(16))]
 #[derive(Copy, Clone, Zeroable)]
@@ -797,6 +814,7 @@ pub struct AudioInstance {
     pub direction: Vec3,
     pub distance: f32,
     pub attenuation: f32,
+    pub cluster_size: u32,
     pub index: u32,
 }
 
@@ -817,6 +835,7 @@ impl InstanceBufferData {
                 direction: source.coordinates,
                 distance: source.coordinates.length(),
                 index: idx as u32,
+                cluster_size: 1,
                 attenuation: 0.0,
             });
         }

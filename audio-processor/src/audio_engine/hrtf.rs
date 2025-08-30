@@ -1,11 +1,11 @@
 use crate::audio_engine::fft::FftBufferData;
-use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES};
-use crate::audio_engine::transfer::DownloadBufferData;
+use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_INSTANCES, SLIDING_WINDOW_FRAME_AMT};
+use crate::audio_engine::transfer::{copy_to_box, DownloadBufferData};
 use crate::audio_engine::{GpuWindow, InstanceBufferData};
 use crate::scene::listener::hrtf_filter::HrtfFilter;
 use crate::scene::source::FRAME_SIZE;
 use crate::util::{workgroup_div, AsBytes};
-use crate::vulkan::buffer::VulkanBuffer;
+use crate::vulkan::buffer::{InlineBufferData, VulkanBuffer};
 use crate::vulkan::buffer_initializer::{BufferInitializer, InitMode};
 use crate::vulkan::read_spirv_words;
 use crate::vulkan::spec_constants::SpecConstantList;
@@ -28,6 +28,7 @@ pub struct HrtfModule {
     descriptor_set: DescriptorSet,
     descriptor_set_layout: DescriptorSetLayout,
     pub(super) output_buffers: InFlight<VulkanBuffer<DownloadBufferData>>,
+    pub(super) loudness_buffers: InFlight<VulkanBuffer<LoudnessBufferData>>,
 }
 
 impl HrtfModule {
@@ -62,6 +63,14 @@ impl HrtfModule {
         for buffer in output_buffers.0.iter_mut() {
             initializer.init_buffer(buffer, InitMode::Zeroed, queue, &device);
         }
+
+        let loudness_buffers = InFlight::create(
+            frames_in_flight,
+            |_| VulkanBuffer::new_inline(
+                BufferUsageFlags::TRANSFER_SRC | BufferUsageFlags::STORAGE_BUFFER,
+                allocator.clone()
+            )
+        );
 
         let ((mut hrtf_left, hrtf_left_mem, hrtf_left_view), (mut hrtf_right, hrtf_right_mem, hrtf_right_view)) = {
             let image_info = ImageCreateInfo::default()
@@ -192,6 +201,12 @@ impl HrtfModule {
                     .descriptor_count(1)
                     .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .stage_flags(ShaderStageFlags::COMPUTE),
+
+                DescriptorSetLayoutBinding::default()
+                    .binding(6)
+                    .descriptor_count(2)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .stage_flags(ShaderStageFlags::COMPUTE),
             ];
 
             let set_layout_info = DescriptorSetLayoutCreateInfo::default()
@@ -216,11 +231,11 @@ impl HrtfModule {
                     .range(WHOLE_SIZE),
 
                 DescriptorBufferInfo::default()
-                    .buffer(fft_ending_buffer.handle()) // TODO: this is hardcoded for window size 2048!
+                    .buffer(fft_ending_buffer.handle())
                     .range(WHOLE_SIZE),
             ];
             
-            // L[0] L[1] R[0] R[1]
+            // L[0] L[1] R[0] R[1] Loud[0] Loud[1]
             let output_infos = [
                 DescriptorBufferInfo::default()
                     .buffer(output_buffers.0[0].handle())
@@ -240,6 +255,16 @@ impl HrtfModule {
                 DescriptorBufferInfo::default()
                     .buffer(output_buffers.0[1].handle())
                     .offset(size_of::<GpuWindow>() as _)
+                    .range(WHOLE_SIZE),
+
+                DescriptorBufferInfo::default()
+                    .buffer(loudness_buffers.0[0].handle())
+                    .offset(0)
+                    .range(WHOLE_SIZE),
+
+                DescriptorBufferInfo::default()
+                    .buffer(loudness_buffers.0[1].handle())
+                    .offset(0)
                     .range(WHOLE_SIZE),
             ];
 
@@ -298,6 +323,13 @@ impl HrtfModule {
                     .dst_binding(5)
                     .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .image_info(from_ref(&sampler_infos[1])),
+
+                WriteDescriptorSet::default()
+                    .dst_set(set)
+                    .descriptor_count(2)
+                    .dst_binding(6)
+                    .descriptor_type(DescriptorType::STORAGE_BUFFER)
+                    .buffer_info(&output_infos[4..6]),
             ];
 
             device.update_descriptor_sets(&writes, &[]);
@@ -353,7 +385,8 @@ impl HrtfModule {
             pipeline_layout,
             descriptor_set,
             descriptor_set_layout,
-            output_buffers
+            output_buffers,
+            loudness_buffers
         }
     }
 
@@ -402,3 +435,11 @@ impl HrtfModule {
         );
     }
 }
+
+#[repr(C)]
+#[derive(Clone)]
+pub(crate) struct LoudnessBufferData {
+    pub loudnesses: [[f32; GPU_WINDOW_SIZE]; MAX_INSTANCES]
+}
+
+impl InlineBufferData for LoudnessBufferData {}

@@ -6,5 +6,6 @@ struct Instance {
     vec3 position;
     float additional_dist; // in meters
     float attenuation;
+    uint cluster_size;
     uint index;
 };

@@ -41,6 +41,10 @@ layout(binding = 3, std430) restrict buffer OutputRight {
 layout(binding = 4) uniform sampler3D hrtfLeft;
 layout(binding = 5) uniform sampler3D hrtfRight;
 
+layout(binding = 6, std430) restrict buffer Loudness {
+    float loudness[];
+} loudness_buf[2];
+
 // todo: log
 vec2 decode_polar_filter(vec3 polar) {
     vec2 normalized = normalize(polar.yz);
@@ -96,6 +100,31 @@ float inverse_square_attenuation(float dist) {
     return clamp(CONSTANT / dist, 0.00002, 2.0);
 }
 
+// todo: improve math here and above to be more physically-based
+float squared_len(vec2 val) {
+    return val.x * val.x + val.y * val.y;
+}
+
+void save_loudness(vec2 Xk, uint instance_idx, uint sample_idx) {
+    // Very rought approximation of equal-loudness countour curve using a quadratic equation
+    const float LOUDEST = log(2000); // 2000 Hz is taken to be the "loudest point"
+    const float CURVATURE = 1.0 / 7.0; // how strong the curvature isc
+    float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
+    float x = log(frequency) - LOUDEST;
+    float loudness_f = clamp(-(x * x) * CURVATURE + 1.0, 0.0, 1.0);
+
+    // I (intensity) = P / (4 pi r^2)
+    // P ≈ Amplitude^2
+    // I = k*A^2
+    float sq_ampl = squared_len(Xk);
+
+    const float CONSTANT = 100;
+    float db_spl = 10 * log(sq_ampl * CONSTANT) / log(10);
+
+    loudness_buf[output_select].loudness[instance_idx * WINDOW_SIZE + sample_idx] = db_spl * loudness_f;
+}
+
+
 void main() {
     uint sample_idx = gl_GlobalInvocationID.x;
     uint instance_idx = gl_GlobalInvocationID.y;
@@ -121,15 +150,14 @@ void main() {
     vec2 Xk = vec2(samples[sample_idx + fft_offset]);
     Xk *= inverse_square_attenuation(dist);
     Xk *= instance.attenuation;
+
+    save_loudness(Xk, instance_idx, sample_idx);
 //    float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
 //    Xk *= attenuation(frequency, dist);
 //    Xk *= attenuation(frequency, 4000.0);
 
-//    vec2 attenuated_left = complex_mult(Xk, left_hrtf);
-//    vec2 attenuated_right = complex_mult(Xk, right_hrtf);
-
-    vec2 attenuated_left = Xk;
-    vec2 attenuated_right = Xk;
+    vec2 attenuated_left = complex_mult(Xk, left_hrtf);
+    vec2 attenuated_right = complex_mult(Xk, right_hrtf);
 
     // todo: for now we only support up to 64 (AMD) and 32 (NVIDIA) audio sources! Work around this!
     vec2 subgroup_left_sum = subgroupAdd(attenuated_left);
