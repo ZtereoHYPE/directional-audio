@@ -2,16 +2,16 @@ shader_type spatial;
 render_mode diffuse_burley, specular_schlick_ggx;
 
 uniform samplerCube heightmap : filter_linear;
-//uniform samplerCube heightmap : filter_nearest;
 uniform vec3 center;
 
 varying vec3 sphere_direction;
 varying vec2 height;
 
-float shlick(float u) {
+float shlick_glass(float u) {
+    const float R0 = (-0.45 / 2.45) * (-0.45 / 2.45);
 	float m = 1.0 - u;
 	float m2 = m * m;
-	return m2 * m2 * m;
+	return R0 + (1.0 - R0) * m2 * m2 * m;
 }
 
 vec2 GetGradient(vec2 intPos, float t) {
@@ -57,25 +57,23 @@ vec3 rotate_y(vec3 vector, float angle) {
 float fractal_noise(vec3 pos) {
 	pos = vec3(0, sin(TIME / 5.0) , 0) + rotate_y(pos, TIME / 20.0) * 2.0;
 	float octave_0 = Pseudo3dNoise(pos);
-	float octave_1 = Pseudo3dNoise(pos * 5.0) * 0.1 * (octave_0 * 0.5 + 0.25);
+	float octave_1 = Pseudo3dNoise(pos * 5.0) * 0.1 * (octave_0 * 0.5 + 0.5);
 	return octave_0 + octave_1;
 }
 
 vec2 vertex_height(vec3 sphere_dir) {
-	float volume_height = texture(heightmap, sphere_dir).x * 0.5;
-	float bubbleness = (fractal_noise(sphere_dir) * 0.5 + 0.5) * 0.1;
+	float height_value = texture(heightmap, sphere_dir).x * 0.5;
+	float bubble_noise = (fractal_noise(sphere_dir) * 0.5 + 0.5) * 0.1;
 
-	return vec2(bubbleness + volume_height, volume_height); // both are needed
+	return vec2(bubble_noise + height_value, height_value); // both are needed
 }
 
 vec3 get_normal(vec3 dir, float epsilon) {
 	// Sample along tangent and bitangent
-	// todo: gets imprecise around Y axis
 	vec3 tangent = cross(dir, vec3(0, 1, 0));
 	vec3 bitangent = cross(dir, tangent) * epsilon;
 	tangent *= epsilon;
 
-	// note: this is slightly imprecise wrt epsilon: SIN(THETA) ≈ THETA for small THETA
 	vec3 s01 = vertex_height(normalize(dir - tangent)).x * normalize(dir - tangent);
 	vec3 s21 = vertex_height(normalize(dir + tangent)).x * normalize(dir + tangent);
 	vec3 s10 = vertex_height(normalize(dir - bitangent)).x * normalize(dir - bitangent);
@@ -87,11 +85,11 @@ vec3 get_normal(vec3 dir, float epsilon) {
 	vec3 dy = (s12 - s10) / epsilon;
 
 	// Get normal from those derivatives
-	return normalize(-cross(dy, dx) + dir);
+	return normalize(cross(dx, dy) + dir);
 }
 
 void vertex() {
-	sphere_direction = normalize((MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz - center);
+	sphere_direction = normalize(VERTEX);
 	height = vertex_height(sphere_direction);
 
 	VERTEX += height.x * sphere_direction;
@@ -107,7 +105,7 @@ void fragment() {
 	RIM = 0.2;
 
 	float rim = abs(dot(VIEW, NORMAL));
-	float fresnel = clamp(shlick(rim), 0.0, 1.0);
+	float fresnel = clamp(shlick_glass(rim), 0.0, 1.0);
 	ALPHA = mix(fresnel, 1.0, 0.03);
 	ALPHA += min(0.5 * sqrt(ALPHA) + height.y * 2.0, 0.9);
 }

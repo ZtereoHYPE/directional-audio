@@ -105,23 +105,20 @@ float squared_len(vec2 val) {
     return val.x * val.x + val.y * val.y;
 }
 
+// Represents how many dB full amplitude is equivalent to in the virtual world
+const float FULL_VOLUME = 80.0;
+
 void save_loudness(vec2 Xk, uint instance_idx, uint sample_idx) {
-    // Very rought approximation of equal-loudness countour curve using a quadratic equation
-    const float LOUDEST = log(2000); // 2000 Hz is taken to be the "loudest point"
-    const float CURVATURE = 1.0 / 7.0; // how strong the curvature isc
+    // Rough approximation of equal-loudness countour curve using a quadratic equation
+    const float PEAK_FREQUENCY = log(2000); // 2000 Hz is used as peak frequency for the curve
     float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
-    float x = log(frequency) - LOUDEST;
-    float loudness_f = clamp(-(x * x) * CURVATURE + 1.0, 0.0, 1.0);
+    float reduction = pow(log(frequency) - PEAK_FREQUENCY, 2.0);
 
-    // I (intensity) = P / (4 pi r^2)
-    // P ≈ Amplitude^2
-    // I = k*A^2
+    // Calculate decibels. Full amplitude = -0dB + FULL_VOLUME
     float sq_ampl = squared_len(Xk);
+    float decibels = 10 * log(squared_len(Xk)) / log(10) + FULL_VOLUME - reduction;
 
-    const float CONSTANT = 100;
-    float db_spl = 10 * log(sq_ampl * CONSTANT) / log(10);
-
-    loudness_buf[output_select].loudness[instance_idx * WINDOW_SIZE + sample_idx] = db_spl * loudness_f;
+    loudness_buf[output_select].loudness[instance_idx * WINDOW_SIZE + sample_idx] = decibels;
 }
 
 

@@ -47,7 +47,8 @@ void main() {
 
         // Calculate the height added from the instance
         float value = exp(-(dist * dist / stddev_2));
-        height += value * (instance.loudness * 0.2 + 1.0);
+        float normalized = max(instance.loudness, 0) / 40.0;
+        height += value * normalized;
 
         // If we're at the tip of the bell curve, add a ripple
         if (value > 0.98)
@@ -56,6 +57,6 @@ void main() {
 
     imageStore(heightmap_tex, tex_coords, vec4(height));
 
-    if (ripple_height > 0.0)
-        imageStore(ripple_tex, tex_coords, vec4(ripple_height));
+    if (ripple_height > 1.0)
+        imageStore(ripple_tex, tex_coords, vec4(min(ripple_height, 10.0)));
 }
