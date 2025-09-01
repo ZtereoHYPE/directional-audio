@@ -6,7 +6,7 @@ use crate::audio_engine::gpu_constants::{GPU_WINDOW_SIZE, MAX_SOURCES};
 #[allow(unsafe_op_in_unsafe_fn)]
 
 use crate::audio_engine::gpu_constants::{MAX_INSTANCES, SLIDING_WINDOW_FRAME_AMT};
-use crate::audio_engine::hrtf::{HrtfModule, LoudnessBufferData};
+use crate::audio_engine::dsp::{DspModule, LoudnessBufferData, LOUDNESS_BUCKETS};
 use crate::audio_engine::rays::RayModule;
 use crate::scene::source::{Frame, FRAME_SIZE};
 use crate::scene::Scene;
@@ -44,7 +44,7 @@ mod debug;
 mod cluster;
 mod transfer;
 mod delay;
-mod hrtf;
+mod dsp;
 
 /// Represents a single audio frame on the GPU, containing complex values to enable FFT
 pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
@@ -70,7 +70,7 @@ pub struct AudioEngine {
 
     delay_module: DelayModule,
     fft_module: FftModule,
-    hrtf_module: HrtfModule,
+    dsp_module: DspModule,
     transfer_module: TransferModule,
     ray_module: RayModule,
     cluster_module: ClusterModule,
@@ -308,24 +308,23 @@ impl AudioEngine {
             (audio, rt)
         };
 
-        // let audio_deps = [
-        //     (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Upload)]),
-        //     (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload), (1, AudioSyncStage::Compute)]),
-        //     (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute), (1, AudioSyncStage::Submit)]),
-        //     // (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
-        //     (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
-        // ].into_iter().collect();
-
-        // TODO MASSIVE: figure out why pipelining causes crackling sound
-        let audio_deps_seq = [
-            (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Submit)]),
-            (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload)]),
+        let audio_deps = [
+            (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Upload)]),
+            (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload), (1, AudioSyncStage::Submit)]),
             (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
             (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
         ].into_iter().collect();
 
+        // TODO MASSIVE: figure out why pipelining causes crackling sound
+        // let audio_deps = [
+        //     (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Submit)]),
+        //     (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload)]),
+        //     (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
+        //     (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
+        // ].into_iter().collect();
+
         let audio_counter = InFlightCounter::new(frames_in_flight);
-        let audio_timeline = TimelineTracker::new(audio_semaphores, audio_deps_seq);
+        let audio_timeline = TimelineTracker::new(audio_semaphores, audio_deps);
 
         let rt_deps = [
             (RtSyncStage::RayTrace, vec![]),
@@ -353,7 +352,7 @@ impl AudioEngine {
             fft_module.starting_buffer(),
         );
 
-        let hrtf_module = HrtfModule::new(
+        let hrtf_module = DspModule::new(
             scene.listener.filter.clone(),
             buffer_allocator.clone(),
             &mut buffer_initializer,
@@ -412,7 +411,7 @@ impl AudioEngine {
 
             delay_module,
             fft_module,
-            hrtf_module,
+            dsp_module: hrtf_module,
             transfer_module,
             ray_module,
             cluster_module,
@@ -517,11 +516,11 @@ impl AudioEngine {
         // todo: get rid of this
         self.delay_module.apply_delay(&mut compute_buffer, self.frame_counter, self.scene.listener.location, MAX_SOURCES);
 
-        // perform fourier transform
+        // // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut compute_buffer, 0, false, MAX_SOURCES);
 
         // perform HRTF dsp
-        self.hrtf_module.apply_hrtf(&mut compute_buffer, counter, instance_amt, self.scene.listener.rotation, self.scene.listener.location);
+        self.dsp_module.apply_dsp(&mut compute_buffer, counter, instance_amt, self.scene.listener.rotation, self.scene.listener.location);
 
         // transfer data back
         self.transfer_module.download_windows(&mut download_buffer, counter);
@@ -801,7 +800,7 @@ fn process_loudness_data(loudness_data: Box<LoudnessBufferData>) -> Box<Loudness
     for (idx, instance) in loudness_data.loudnesses.iter().enumerate() {
         // average decibels, skipping DC component
         let sum: f32 = instance.iter().skip(1).sum();
-        loudness[idx] = sum / (GPU_WINDOW_SIZE - 1) as f32;
+        loudness[idx] = sum / (LOUDNESS_BUCKETS - 1) as f32;
     }
 
     Box::from(loudness)
@@ -846,7 +845,6 @@ impl InstanceBufferData {
     pub(crate) fn copy_instances(&mut self, instances: &Vec<AudioInstance>) {
         assert!(instances.len() <= MAX_INSTANCES);
 
-        // todo: replace with a memcopy perhaps?
         for (idx, val) in instances.iter().enumerate() {
             self.instances[idx] = *val;
         }

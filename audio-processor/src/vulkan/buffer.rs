@@ -164,7 +164,7 @@ impl<T: InlineBufferData> LocalVulkanBuffer<T> {
 
         let allocation_info = vk_mem::AllocationCreateInfo {
             usage: vk_mem::MemoryUsage::AutoPreferHost,
-            flags: AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::MAPPED,
+            flags: AllocationCreateFlags::HOST_ACCESS_RANDOM | AllocationCreateFlags::MAPPED,
             ..Default::default()
         };
 

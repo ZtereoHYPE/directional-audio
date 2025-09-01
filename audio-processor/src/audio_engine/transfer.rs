@@ -17,7 +17,7 @@ use std::thread::JoinHandle;
 use vk_mem::Allocator;
 use crate::audio_engine::{AudioSyncStage, GpuFrame, GpuWindow, RtSyncStage};
 use crate::audio_engine::fft::FftModule;
-use crate::audio_engine::hrtf::LoudnessBufferData;
+use crate::audio_engine::dsp::LoudnessBufferData;
 use crate::audio_engine::rays::RtOutputBufferData;
 use crate::VisualizationData;
 use crate::vulkan::in_flight::{InFlight, InFlightCounter};

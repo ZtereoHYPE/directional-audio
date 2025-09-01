@@ -1,4 +1,4 @@
-[gd_scene load_steps=28 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=29 format=4 uid="uid://u8slr1sr2sxb"]
 
 [ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_icnq2"]
 [ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://assets/scripts/slider_label.gd" id="2_a6ww5"]
@@ -52,6 +52,10 @@ height = 1.8
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_jo7w2"]
 radius = 0.4
 height = 1.8
+
+[sub_resource type="SphereMesh" id="SphereMesh_dhqrm"]
+radius = 1.0
+height = 2.0
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u6mdc"]
 shading_mode = 2
@@ -266,6 +270,7 @@ shape = SubResource("CapsuleShape3D_jo7w2")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
 
 [node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Player/Head"]
+mesh = SubResource("SphereMesh_dhqrm")
 skeleton = NodePath("../../../Global Visualizations")
 script = ExtResource("12_d2a62")
 

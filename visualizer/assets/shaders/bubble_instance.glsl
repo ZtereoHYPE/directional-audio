@@ -51,8 +51,10 @@ void main() {
         height += value * normalized;
 
         // If we're at the tip of the bell curve, add a ripple
-        if (value > 0.98)
-            ripple_height += max(instance.loudness - instance.prev_loudness, 0.0);
+        if (value > 0.98) {
+            float diff = (instance.loudness - instance.prev_loudness);
+            ripple_height += max(diff, 0.0);
+        }
     }
 
     imageStore(heightmap_tex, tex_coords, vec4(height));

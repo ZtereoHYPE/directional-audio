@@ -20,8 +20,7 @@ use vk_mem::{Alloc, Allocator};
 use crate::vulkan::in_flight::{InFlight, InFlightCounter};
 use crate::vulkan::queue::VulkanQueue;
 
-// todo: rename to DspModule because it performs more than just HRTF (attenuation)
-pub struct HrtfModule {
+pub struct DspModule {
     device: Device,
     pipeline: Pipeline,
     pipeline_layout: PipelineLayout,
@@ -31,7 +30,7 @@ pub struct HrtfModule {
     pub(super) loudness_buffers: InFlight<VulkanBuffer<LoudnessBufferData>>,
 }
 
-impl HrtfModule {
+impl DspModule {
     pub(super) unsafe fn new(
         filter: HrtfFilter,
         allocator: Arc<Allocator>,
@@ -349,7 +348,7 @@ impl HrtfModule {
                 .create_pipeline_layout(&layout_info, None)
                 .expect("Failed to create pipeline layout");
 
-            let code_words = read_spirv_words("target/shaders/hrtf.comp.spv");
+            let code_words = read_spirv_words("target/shaders/dsp.comp.spv");
 
             let shader_module_info = ShaderModuleCreateInfo::default()
                 .code(&code_words[..]);
@@ -390,7 +389,7 @@ impl HrtfModule {
         }
     }
 
-    pub(super) unsafe fn apply_hrtf(&mut self, command_buffer: &mut CommandBuffer, counter: InFlightCounter, instance_amt: u32, rotation: Mat3, position: Vec3) {
+    pub(super) unsafe fn apply_dsp(&mut self, command_buffer: &mut CommandBuffer, counter: InFlightCounter, instance_amt: u32, rotation: Mat3, position: Vec3) {
         self.device.cmd_fill_buffer(*command_buffer, self.output_buffers[counter].handle(), 0, size_of::<DownloadBufferData>() as _, 0);
         
         self.device.cmd_bind_descriptor_sets(
@@ -436,10 +435,12 @@ impl HrtfModule {
     }
 }
 
+pub(super) const LOUDNESS_BUCKETS: usize = GPU_WINDOW_SIZE / 2 + 1;
+
 #[repr(C)]
 #[derive(Clone)]
 pub(crate) struct LoudnessBufferData {
-    pub loudnesses: [[f32; GPU_WINDOW_SIZE]; MAX_INSTANCES]
+    pub loudnesses: [[f32; LOUDNESS_BUCKETS]; MAX_INSTANCES]
 }
 
 impl InlineBufferData for LoudnessBufferData {}

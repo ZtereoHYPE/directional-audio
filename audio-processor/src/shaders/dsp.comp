@@ -41,6 +41,7 @@ layout(binding = 3, std430) restrict buffer OutputRight {
 layout(binding = 4) uniform sampler3D hrtfLeft;
 layout(binding = 5) uniform sampler3D hrtfRight;
 
+// todo: use something more compact than floats for this as we don't really need more than 16 bits of precision
 layout(binding = 6, std430) restrict buffer Loudness {
     float loudness[];
 } loudness_buf[2];
@@ -107,16 +108,16 @@ float squared_len(vec2 val) {
 
 // Represents how many dB full amplitude is equivalent to in the virtual world
 const float FULL_VOLUME = 80.0;
+const float PEAK_FREQUENCY = log(2000); // 2000 Hz is used as peak frequency for the curve
 
 void save_loudness(vec2 Xk, uint instance_idx, uint sample_idx) {
     // Rough approximation of equal-loudness countour curve using a quadratic equation
-    const float PEAK_FREQUENCY = log(2000); // 2000 Hz is used as peak frequency for the curve
     float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
     float reduction = pow(log(frequency) - PEAK_FREQUENCY, 2.0);
 
     // Calculate decibels. Full amplitude = -0dB + FULL_VOLUME
-    float sq_ampl = squared_len(Xk);
-    float decibels = 10 * log(squared_len(Xk)) / log(10) + FULL_VOLUME - reduction;
+    float sq_ampl = squared_len(max(Xk, 0.00002));
+    float decibels = 10 * log(sq_ampl) / log(10) + FULL_VOLUME - reduction;
 
     loudness_buf[output_select].loudness[instance_idx * WINDOW_SIZE + sample_idx] = decibels;
 }
