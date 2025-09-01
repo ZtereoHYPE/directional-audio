@@ -12,6 +12,7 @@ godot = "0.3.4"
 audio-processor = { path = "../../audio-processor"}
 hound = "3.5.1"
 glam = "0.30.4"
+bytemuck = "1.23.2"
 
 [profile.dev]
 opt-level = 3

@@ -1,11 +1,7 @@
-use std::ops::Deref;
-use glam::Vec3;
 use audio_processor::{Loudness, VisualizationData};
 use godot::builtin::{PackedByteArray, PackedVector3Array, PackedVector4Array, Vector3, Vector4};
 use godot::obj::Gd;
 use godot::prelude::{godot_api, GodotClass};
-use audio_processor::audio_engine::AudioInstance;
-use audio_processor::util::AsBytes;
 use crate::audio_listener::AudioListenerNode;
 
 #[repr(align(16))]
@@ -49,7 +45,18 @@ impl GodotVisualizationData {
 impl GodotVisualizationData {
     #[func]
     pub fn get_instance_buffer(&self, listener: Gd<AudioListenerNode>) -> PackedByteArray { unsafe {
-        println!("loudness: {}", listener.bind().loudness[0]);
+        let loudness = listener.bind().loudness_history
+            .iter()
+            .take(5)
+            .fold(Loudness::empty(), |l, r| l + *r);
+
+        let prev_loudness = listener.bind().loudness_history
+            .iter()
+            .skip(3)
+            .take(5)
+            .fold(Loudness::empty(), |l, r| l + *r);
+
+        // println!("loudness of 0: {}", loudness.0[0]);
 
         self.instances
             .iter()
@@ -57,8 +64,8 @@ impl GodotVisualizationData {
             .map(|(idx, (pos, cluster))| GodotInstance {
                 position: *pos,
                 cluster_size: *cluster,
-                loudness: listener.bind().loudness[idx],
-                prev_loudness: listener.bind().previous_loudness[idx],
+                loudness: loudness.0[idx] / 5.0,
+                prev_loudness: prev_loudness.0[idx] / 5.0,
             })
             .collect::<Vec<_>>()
             .as_slice()

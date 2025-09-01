@@ -12,13 +12,34 @@ use crate::scene::source::Frame;
 use crate::scene::Scene;
 use glam::{Mat3, Vec3};
 use std::error::Error;
+use std::iter::Sum;
+use std::ops::{Add, Sub};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
+use bytemuck::Zeroable;
 use crate::audio_engine::gpu_constants::MAX_INSTANCES;
 
-pub type Loudness = [f32; MAX_INSTANCES];
+// todo: find a better place for this (/api directory?)
+#[derive(Zeroable, Copy, Clone, PartialEq)]
+pub struct Loudness(pub [f32; MAX_INSTANCES]);
+impl Add for Loudness {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut output = Loudness::zeroed();
+        for (idx, (l, r)) in self.0.into_iter().zip(rhs.0).enumerate() {
+            output.0[idx] = l + r;
+        }
+        output
+    }
+}
+
+impl Loudness {
+    pub fn empty() -> Self {
+        Self::zeroed()
+    }
+}
 
 pub struct VisualizationData {
     pub last_rt_origin: Vec3,

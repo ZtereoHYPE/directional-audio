@@ -1,10 +1,11 @@
+use std::collections::VecDeque;
 use crate::audio_mesh::{AudioMeshNode, AUDIO_MESH_GROUP};
 use crate::audio_source::{AudioSourceNode, AUDIO_SOURCE_GROUP};
 use crate::to_vec;
 use crate::visualization::GodotVisualizationData;
 use audio_processor;
 use audio_processor::scene::listener::hrtf_filter::{HrtfFilter, HrtfOptions};
-use audio_processor::scene::source::FRAME_SIZE;
+use audio_processor::scene::source::{Frame, FRAME_SIZE};
 use audio_processor::scene::Scene;
 use audio_processor::util::rotation_matrix;
 use audio_processor::{AudioEngineMonitor, Loudness};
@@ -16,6 +17,7 @@ use godot::obj::NewAlloc;
 use godot::prelude::*;
 use std::f32::consts::PI;
 use std::path::Path;
+use godot::global::abs;
 
 const SAMPLE_RATE: f64 = 44100.0;
 
@@ -42,8 +44,9 @@ pub struct AudioListenerNode {
     audio_stream_player: Gd<AudioStreamPlayer>, // warning: never gets free'd
     audio_engine: Option<AudioEngineMonitor>,
 
-    pub loudness: Loudness,
-    pub previous_loudness: Loudness,
+    pub loudness_history: VecDeque<Loudness>,
+
+    tmp: VecDeque<(Frame, Frame, Loudness)>,
 
     base: Base<Node3D>
 }
@@ -72,8 +75,8 @@ impl INode3D for AudioListenerNode {
             last_rotation: Vector3::ZERO,
             audio_stream_player,
             audio_engine: None,
-            loudness: [0.0; 64],
-            previous_loudness: [0.0; 64],
+            loudness_history: VecDeque::with_capacity(10),
+            tmp: VecDeque::new(),
             base
         }
     }
@@ -103,17 +106,33 @@ impl INode3D for AudioListenerNode {
 
             playback.push_buffer(&samples);
 
+
+            for (fl, fr, l) in &frames {
+                self.tmp.push_front((*fl, *fr, **l));
+            }
+
+            // if self.tmp.len() > 1 {
+            //     let mut prev = self.tmp.get(0).unwrap();
+            //     for item in self.tmp.iter().skip(1) {
+            //         if prev.0 == item.0 && prev.1 == item.1 {
+            //             println!("Same audio!");
+            //         }
+            //
+            //         if prev.2 == item.2 {
+            //             println!("Same loudness!");
+            //         } else if f32::abs(prev.2.0[0] - item.2.0[0]) < 0.01 {
+            //             println!("Very similar loudness!")
+            //         }
+            //     }
+            // }
+
             // Update loudness buffers
-            match frames.len() {
-                0 => {},
-                1 => {
-                    self.previous_loudness = self.loudness.clone();
-                    self.loudness = *frames[0].2
-                },
-                len => {
-                    self.previous_loudness = *frames[len - 2].2;
-                    self.loudness = *frames[len - 1].2;
-                }
+            for (_, _, loudness) in frames {
+                self.loudness_history.push_front(*loudness);
+            }
+
+            while (self.loudness_history.len() > 10) {
+                self.loudness_history.pop_back();
             }
 
             if self.export_audio {
@@ -213,6 +232,7 @@ impl INode3D for AudioListenerNode {
             .map(|n| n.bind().get_audio_source())
             .collect::<Vec<_>>();
 
+        // todo: up this resolution samples
         let filter_options = HrtfOptions {
             azimuth_samples: 90, // one every 2 deg
             elevation_samples: 45, // one every 2 deg
