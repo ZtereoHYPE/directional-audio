@@ -182,7 +182,7 @@ impl DelayModule {
         }
     }
 
-    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: usize, camera_position: Vec3, instance_amt: usize) {
+    pub(crate) unsafe fn apply_delay(&mut self, command_buffer: &mut CommandBuffer, frame_counter: usize, camera_position: Vec3, instance_amt: u32) {
         let memory_barrier = MemoryBarrier::default()
             .src_access_mask(AccessFlags::TRANSFER_WRITE) // flush any transfer write caches
             .dst_access_mask(AccessFlags::SHADER_READ); // invalidate any shader read caches

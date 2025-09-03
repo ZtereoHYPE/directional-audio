@@ -207,7 +207,7 @@ impl FftModule {
         }
     }
 
-    pub unsafe fn gpu_fourier_transform(&mut self, command_buffer: &mut CommandBuffer, initial_buffer: u32, inverse: bool, instance_amt: usize) -> u32 {
+    pub unsafe fn gpu_fourier_transform(&mut self, command_buffer: &mut CommandBuffer, initial_buffer: u32, inverse: bool, instance_amt: u32) -> u32 {
         self.device.cmd_bind_descriptor_sets(
             *command_buffer,
             PipelineBindPoint::COMPUTE,

@@ -15,7 +15,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::thread::JoinHandle;
 use vk_mem::Allocator;
-use crate::audio_engine::{AudioSyncStage, GpuFrame, GpuWindow, RtSyncStage};
+use crate::audio_engine::{AudioSyncStage, DownloadWindow, GpuFrame, GpuWindow, RtSyncStage};
 use crate::audio_engine::fft::FftModule;
 use crate::audio_engine::dsp::LoudnessBufferData;
 use crate::audio_engine::rays::RtOutputBufferData;
@@ -204,15 +204,24 @@ impl InlineBufferData for UploadBufferData {}
 
 #[repr(C)]
 pub(crate) struct DownloadBufferData {
-    pub windows: [GpuWindow; 2]
+    pub windows: [DownloadWindow; 2]
 }
 
 impl InlineBufferData for DownloadBufferData {}
 
 impl DownloadBufferData {
-    pub(crate) unsafe fn get_windows(&self) -> (Box<GpuWindow>, Box<GpuWindow>) { unsafe {
-        let left = copy_to_box(&self.windows[0] as *const GpuWindow);
-        let right = copy_to_box(&self.windows[1] as *const GpuWindow);
+    pub(crate) unsafe fn get_window_vecs(&self) -> (Vec<Vec2>, Vec<Vec2>) { unsafe {
+        let mut left = Vec::with_capacity(FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT);
+        let mut right = Vec::with_capacity(FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT);
+
+        let samples = self.windows[0].iter()
+            .flatten()
+            .zip(self.windows[1].iter().flatten());
+
+        for (l, r) in samples {
+            left.push(Vec2::new(l.x as f32, l.y as f32) / i16::MAX as f32);
+            right.push(Vec2::new(r.x as f32, r.y as f32) / i16::MAX as f32);
+        }
 
         (left, right)
     }}

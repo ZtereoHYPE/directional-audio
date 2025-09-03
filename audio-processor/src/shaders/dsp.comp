@@ -32,12 +32,12 @@ layout(binding = 1, std430) readonly restrict buffer FftOutput {
     vec2 samples[];
 };
 
-layout(binding = 2, std430) restrict buffer OutputLeft {
-    vec2 samples[];
+layout(binding = 2, std430) coherent restrict buffer OutputLeft {
+    ivec2 samples[];
 } left_output[2];
 
-layout(binding = 3, std430) restrict buffer OutputRight {
-    vec2 samples[];
+layout(binding = 3, std430) coherent restrict buffer OutputRight {
+    ivec2 samples[];
 } right_output[2];
 
 layout(binding = 4) uniform sampler3D hrtfLeft;
@@ -47,6 +47,7 @@ layout(binding = 5) uniform sampler3D hrtfRight;
 layout(binding = 6, std430) restrict buffer Loudness {
     float loudness[];
 } loudness_buf[2];
+
 
 vec2 decode_polar_filter(vec3 polar) {
     vec2 normalized = normalize(polar.yz);
@@ -73,6 +74,15 @@ vec2 complex_mult(vec2 a, vec2 b) {
     return mat2(a.x, a.y, -a.y, a.x) * b;
 }
 
+// todo: improve math here and above to be more physically-based
+float squared_len(vec2 val) {
+    return val.x * val.x + val.y * val.y;
+}
+
+// Represents how many dB full amplitude is equivalent to in the virtual world
+const float FULL_VOLUME = 80.0;
+const float PEAK_FREQUENCY = log(2000); // 2000 Hz is used as peak frequency for the curve
+
 float inverse_square_attenuation(float dist) {
     // I (intensity) = P / (4 pi r^2)
     // P ≈ Amplitude^2
@@ -82,15 +92,6 @@ float inverse_square_attenuation(float dist) {
     // an amplitude multiplication of 0.00002 is more or less equivalent to -96dB, considered by many to be absolute quiet
     return clamp(CONSTANT / dist, 0.00002, 2.0);
 }
-
-// todo: improve math here and above to be more physically-based
-float squared_len(vec2 val) {
-    return val.x * val.x + val.y * val.y;
-}
-
-// Represents how many dB full amplitude is equivalent to in the virtual world
-const float FULL_VOLUME = 80.0;
-const float PEAK_FREQUENCY = log(2000); // 2000 Hz is used as peak frequency for the curve
 
 void save_loudness(vec2 Xk, uint instance_idx, uint sample_idx) {
     // Rough approximation of equal-loudness countour curve using a quadratic equation
@@ -150,19 +151,23 @@ void main() {
     vec2 attenuated_left = complex_mult(prev_Xk, prev_left_hrtf) + complex_mult(next_Xk, next_left_hrtf);
     vec2 attenuated_right = complex_mult(prev_Xk, prev_right_hrtf) + complex_mult(next_Xk, next_right_hrtf);
 
-    // todo: for now we only support up to 64 (AMD) and 32 (NVIDIA) audio sources! Work around this!
-    barrier(); // todo: is this needed??????
-    vec2 subgroup_left_sum = subgroupAdd(attenuated_left);
-    vec2 subgroup_right_sum = subgroupAdd(attenuated_right);
+    const float I16_MAX = 32767.0;
+    barrier();
+    ivec2 subgroup_left_sum = ivec2(subgroupAdd(attenuated_left) * I16_MAX);
+    ivec2 subgroup_right_sum = ivec2(subgroupAdd(attenuated_right) * I16_MAX);
 
     if (subgroupElect()) {
-        left_output[output_select].samples[sample_idx] += subgroup_left_sum;
-        right_output[output_select].samples[sample_idx] += subgroup_right_sum;
+        atomicAdd(left_output[output_select].samples[sample_idx].x, subgroup_left_sum.x);
+        atomicAdd(left_output[output_select].samples[sample_idx].y, subgroup_left_sum.y);
+        atomicAdd(right_output[output_select].samples[sample_idx].x, subgroup_right_sum.x);
+        atomicAdd(right_output[output_select].samples[sample_idx].y, subgroup_right_sum.y);
 
         if (sample_idx != 0 && sample_idx != WINDOW_SIZE / 2) {
             uint idx = WINDOW_SIZE - sample_idx;
-            left_output[output_select].samples[idx] += vec2(subgroup_left_sum.x, -subgroup_left_sum.y);
-            right_output[output_select].samples[idx] += vec2(subgroup_right_sum.x, -subgroup_right_sum.y);
+            atomicAdd(left_output[output_select].samples[idx].x, subgroup_left_sum.x);
+            atomicAdd(left_output[output_select].samples[idx].y, -subgroup_left_sum.y);
+            atomicAdd(right_output[output_select].samples[idx].x, subgroup_right_sum.x);
+            atomicAdd(right_output[output_select].samples[idx].y, -subgroup_right_sum.y);
         }
     }
 }

@@ -52,6 +52,8 @@ pub(crate) type GpuFrame = [Vec2; FRAME_SIZE];
 /// Represents the window used for partitioned convolution
 pub(crate) type GpuWindow = [GpuFrame; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
 
+pub(crate) type DownloadWindow = [[IVec2; FRAME_SIZE]; SLIDING_WINDOW_FRAME_AMT]; // represents a sliding window of audio frames
+
 pub struct AudioEngine {
     scene: Scene,
 
@@ -598,7 +600,7 @@ impl AudioEngine {
             // Get the data from the local buffer
             download_buffer.invalidate();
             loudness_buffer.invalidate();
-            let (left_window, right_window) = download_buffer.buffer_data().get_windows();
+            let (left_window, right_window) = download_buffer.buffer_data().get_window_vecs();
             let loudness_data = Box::from(loudness_buffer.buffer_data().clone());
 
             // Signal that the audio sync is finished, and the next download can start
@@ -611,8 +613,8 @@ impl AudioEngine {
             let copy_time = Instant::now();
 
             // Transform the data
-            let left = FftModule::local_fourier_transform(window_to_vec(left_window), true);
-            let right = FftModule::local_fourier_transform(window_to_vec(right_window), true);
+            let left = FftModule::local_fourier_transform(left_window, true);
+            let right = FftModule::local_fourier_transform(right_window, true);
             let loudness = process_loudness_data(loudness_data);
 
             let left = crop_window_to_frame(&left);
@@ -795,12 +797,12 @@ pub(crate) unsafe fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> { unsafe
 }}
 
 fn process_loudness_data(loudness_data: Box<LoudnessBufferData>) -> Box<Loudness> {
-    let mut loudness = [0.0; MAX_INSTANCES];
+    let mut loudness = Loudness::empty();
 
     for (idx, instance) in loudness_data.loudnesses.iter().enumerate() {
         // average decibels, skipping DC component
         let sum: f32 = instance.iter().skip(1).sum();
-        loudness[idx] = sum / (LOUDNESS_BUCKETS - 1) as f32;
+        loudness.0[idx] = sum / (LOUDNESS_BUCKETS - 1) as f32;
     }
 
     Box::from(loudness)

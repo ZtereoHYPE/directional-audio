@@ -407,10 +407,6 @@ impl DspModule {
             self.pipeline
         );
 
-        if (MAX_INSTANCES > 64) {
-            panic!("Currently maximum 64 sources are supported!");
-        }
-
         let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, workgroup_div(instance_amt, 64));
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(prev_rotation).as_bytes());
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, Mat3A::from(next_rotation).as_bytes());
