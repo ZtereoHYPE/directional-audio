@@ -212,7 +212,6 @@ impl DelayModule {
             self.pipeline
         );
 
-        // self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(camera_rotation).as_bytes());
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, camera_position.as_bytes());
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 12, (frame_counter as u32).as_bytes());
 

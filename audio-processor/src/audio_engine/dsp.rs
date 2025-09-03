@@ -338,7 +338,7 @@ impl DspModule {
         let (pipeline, pipeline_layout) = {
             let push_constant_range = PushConstantRange::default()
                 .stage_flags(ShaderStageFlags::COMPUTE)
-                .size(68);
+                .size(116);
 
             let layout_info = PipelineLayoutCreateInfo::default()
                 .push_constant_ranges(from_ref(&push_constant_range))
@@ -389,7 +389,7 @@ impl DspModule {
         }
     }
 
-    pub(super) unsafe fn apply_dsp(&mut self, command_buffer: &mut CommandBuffer, counter: InFlightCounter, instance_amt: u32, rotation: Mat3, position: Vec3) {
+    pub(super) unsafe fn apply_dsp(&mut self, command_buffer: &mut CommandBuffer, counter: InFlightCounter, instance_amt: u32, prev_rotation: Mat3, next_rotation: Mat3, position: Vec3) {
         self.device.cmd_fill_buffer(*command_buffer, self.output_buffers[counter].handle(), 0, size_of::<DownloadBufferData>() as _, 0);
         
         self.device.cmd_bind_descriptor_sets(
@@ -412,10 +412,11 @@ impl DspModule {
         }
 
         let workgroups = (GPU_WINDOW_SIZE as u32 / 2 + 1, workgroup_div(instance_amt, 64));
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(rotation).as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, position.as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 60, instance_amt.as_bytes());
-        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 64, (counter.idx() as u32).as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, Mat3A::from(prev_rotation).as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 48, Mat3A::from(next_rotation).as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 96, position.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 108, instance_amt.as_bytes());
+        self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 112, (counter.idx() as u32).as_bytes());
 
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 

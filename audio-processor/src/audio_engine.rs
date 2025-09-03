@@ -513,14 +513,14 @@ impl AudioEngine {
         }
 
         // move the delayed windows to the fft buffer
-        // todo: get rid of this
         self.delay_module.apply_delay(&mut compute_buffer, self.frame_counter, self.scene.listener.location, MAX_SOURCES);
 
-        // // perform fourier transform
+        // perform fourier transform
         self.fft_module.gpu_fourier_transform(&mut compute_buffer, 0, false, MAX_SOURCES);
 
         // perform HRTF dsp
-        self.dsp_module.apply_dsp(&mut compute_buffer, counter, instance_amt, self.scene.listener.rotation, self.scene.listener.location);
+        self.dsp_module.apply_dsp(&mut compute_buffer, counter, instance_amt, self.scene.listener.prev_rotation, self.scene.listener.rotation, self.scene.listener.location);
+        self.scene.listener.prev_rotation = self.scene.listener.rotation; // this rotation has now happened
 
         // transfer data back
         self.transfer_module.download_windows(&mut download_buffer, counter);

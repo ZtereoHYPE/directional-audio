@@ -5,6 +5,7 @@ pub mod hrtf_filter;
 
 pub(crate) struct AudioListener {
     pub(crate) rotation: Mat3,
+    pub(crate) prev_rotation: Mat3,
     pub(crate) location: Vec3,
     pub(crate) filter: HrtfFilter
 }
@@ -14,6 +15,7 @@ impl AudioListener {
         Self {
             location,
             rotation,
+            prev_rotation: Mat3::IDENTITY,
             filter
         }
     }
