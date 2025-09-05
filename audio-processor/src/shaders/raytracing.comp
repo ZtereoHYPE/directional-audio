@@ -10,7 +10,7 @@ layout(constant_id = 3) const uint MAX_BOUNCES = 4;
 const float PHI = radians(180) * (sqrt(5.0) - 1);
 const float EPSILON = 0.0001;
 
-layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = 64) in;
 
 
 
@@ -261,9 +261,8 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
         store_ray(point_idx, source_idx, bounce, mesh_hit.pos, 1);
 
         // If it's the first bounce, make sure to update the location to include the distance.
-        if (bounce == 0) {
+        if (bounce == 0)
             result.location = mesh_hit.pos;
-        }
 
         // Else, keep bouncing (using perfect reflections)
         result.additional_distance += length(main_ray.origin - mesh_hit.pos);
@@ -273,10 +272,6 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
     }
 
     return result;
-}
-
-void create_ray_path(Ray ray) {
-
 }
 
 void main() {
@@ -294,23 +289,3 @@ void main() {
     // todo: find a way for these to be condensed and store the total
     outputs[source_idx * POINT_AMOUNT + point_idx] = result;
 }
-
-//void main_optimized() {
-//    // Avoid generating more rays than requested
-//    if (gl_GlobalInvocationID.x > POINT_AMOUNT) return;
-//
-//    if (subgroupElect()) {
-//        Ray ray = generate_ray();
-//        // trace the ray
-//        // store the rays in the warp-shared storage
-//    }
-//
-//    vec3 source = sources[gl_GlobalInvocationID.y];
-//
-//    // for each position in the shared storage (incrementally)
-//        // cast a ray towards source
-//        // if source is visible, record the hit and stop
-//        // else continue
-//
-//    // store the result
-//}

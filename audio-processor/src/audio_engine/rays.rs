@@ -1,4 +1,4 @@
-use crate::audio_engine::gpu_constants::{MAX_SOURCES, SPHERE_POINTS};
+use crate::audio_engine::gpu_constants::{MAX_BOUNCES, MAX_SOURCES, SPHERE_POINTS};
 use crate::scene::mesh::bvh::{BvhBufferData, MAX_BVH_DEPTH};
 use crate::scene::mesh::TriangleBufferData;
 use crate::scene::source::AudioSource;
@@ -49,7 +49,7 @@ impl RayModule {
             .append(SPHERE_POINTS as u32) // sphere point amount
             .append(MAX_SOURCES as u32) // source amount
             .append(MAX_BVH_DEPTH as u32) // max BVH depth
-            .append(4_u32) // max bounces
+            .append(MAX_BOUNCES as u32) // max bounces
             .build();
         
         let sources_buffer = VulkanBuffer::new_inline(
@@ -372,7 +372,7 @@ impl RayModule {
 }
 
 pub struct RayBufferData {
-    pub rays: [Vec4; SPHERE_POINTS * 4 * MAX_SOURCES]
+    pub rays: [Vec4; SPHERE_POINTS * MAX_BOUNCES * MAX_SOURCES]
 }
 
 impl InlineBufferData for RayBufferData {}
