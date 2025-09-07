@@ -242,6 +242,7 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
         // If we can reach the source, we're done!
         if (!shadow_hit.did_hit || shadow_hit.t > length(src_direction)) {
             result.found_source = true;
+            result.additional_distance += length(src_direction);
             if (bounce == 0)
                 result.location = source;
 
