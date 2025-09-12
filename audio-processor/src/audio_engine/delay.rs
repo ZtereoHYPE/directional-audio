@@ -215,7 +215,7 @@ impl DelayModule {
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 0, camera_position.as_bytes());
         self.device.cmd_push_constants(*command_buffer, self.pipeline_layout, ShaderStageFlags::COMPUTE, 12, (frame_counter as u32).as_bytes());
 
-        let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt as u32);
+        let workgroups = (GPU_WINDOW_SIZE as u32 / 64, instance_amt);
         self.device.cmd_dispatch(*command_buffer, workgroups.0, workgroups.1, 1);
 
         let memory_barrier = MemoryBarrier::default()

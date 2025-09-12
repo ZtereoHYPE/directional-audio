@@ -175,14 +175,13 @@ impl ClusterModule {
             )
             .enumerate()
             .filter(|(_, src)| !src.is_empty()) // remove empty sources
-            .map(|(idx, src)| (idx, approximate_dbscan(src, 2.5, 0.1, 3))) // cluster them
-            // .map(|(idx, src)| (idx, src.into_iter().map(|i| vec![i]).collect::<Vec<_>>())) // cluster them
+            .map(|(idx, src)| (idx, src.len(), approximate_dbscan(src, 2.5, 0.2, 1))) // cluster them
+            // .map(|(idx, src)| (idx, src.len(), src.into_iter().map(|i| vec![i]).collect::<Vec<_>>())) // cluster them
             .collect::<Vec<_>>();
 
         // todo: this is very easily parallelizable or SIMD-able
         let mut total_instances = vec![];
-        for (source_idx, source) in source_clusters {
-            // todo: influence in some way the strength based on the relative amount of instances in the cluster
+        for (source_idx, source_len, source) in source_clusters {
             for cluster in source.iter().skip(1) {
                 let mut avg = AudioClusterPoint::zeroed();
 
@@ -191,19 +190,21 @@ impl ClusterModule {
                 }
 
                 let cluster_size = cluster.len() as u32;
+
+                let cluster_size_attenuation = cluster_size as f32 / source_len as f32;
                 total_instances.push(AudioInstance {
                     direction: avg.direction / cluster_size as f32,
                     distance: avg.distance / cluster_size as f32,
-                    attenuation: avg.attenuation / cluster_size as f32,
+                    attenuation: (avg.attenuation / cluster_size as f32) * cluster_size_attenuation,
                     cluster_size,
                     index: source_idx as u32,
                 });
             }
         }
 
-        // todo: handle this gracefully (sort by cluster size and truncate the smallest)
+        // If we have too many instances, only take the most important ones
         if total_instances.len() > MAX_INSTANCES {
-            // panic!("There are way too many clusters!")
+            total_instances.sort_by(|l, r| l.cluster_size.cmp(&r.cluster_size));
             total_instances.truncate(MAX_INSTANCES);
         }
 

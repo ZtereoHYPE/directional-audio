@@ -43,7 +43,6 @@ layout(binding = 3, std430) coherent restrict buffer OutputRight {
 layout(binding = 4) uniform sampler3D hrtfLeft;
 layout(binding = 5) uniform sampler3D hrtfRight;
 
-// todo: use something more compact than floats for this as we don't really need more than 16 bits of precision
 layout(binding = 6, std430) restrict buffer Loudness {
     float loudness[];
 } loudness_buf[2];
@@ -79,30 +78,28 @@ float squared_len(vec2 val) {
     return val.x * val.x + val.y * val.y;
 }
 
-// Represents how many dB full amplitude is equivalent to in the virtual world
+// Represents how many dB full amplitude is equivalent to in the virtual world at 1m distance
 const float FULL_VOLUME = 80.0;
-const float PEAK_FREQUENCY = log(2000); // 2000 Hz is used as peak frequency for the curve
 
 float inverse_square_attenuation(float dist) {
-    // I (intensity) = P / (4 pi r^2)
-    // P ≈ Amplitude^2
-    // I = k*A^2 / (4 pi r^2)
-    // to keep the same intensity, doubling R requires doubling A -> A is proportional to 1 / r (better math on the notes)
-    const float CONSTANT = 7.0;
     // an amplitude multiplication of 0.00002 is more or less equivalent to -96dB, considered by many to be absolute quiet
-    return clamp(CONSTANT / dist, 0.00002, 2.0);
+    return clamp(1.0 / dist, 0.00002, 2.0);
 }
 
 void save_loudness(vec2 Xk, uint instance_idx, uint sample_idx) {
-    // Rough approximation of equal-loudness countour curve using a quadratic equation
     float frequency = float(sample_idx) / WINDOW_SIZE * SAMPLING_RATE;
-    float reduction = pow(log(frequency) - PEAK_FREQUENCY, 2.0);
+
+    // Rough approximation of equal-loudness countour curve using a quadratic equation
+    const float A = 1.15, B = -24.88, C = 194.03;
+    float x = log(max(frequency, 1.0));
+    float reduction = A*x*x + B*x + C - 60;
 
     // Calculate decibels. Full amplitude = -0dB + FULL_VOLUME
-    float sq_ampl = squared_len(max(Xk, 0.00002));
-    float decibels = 10 * log(sq_ampl) / log(10) + FULL_VOLUME - reduction;
+    float sq_ampl = max(squared_len(Xk), 0.00002);
+    float decibels = FULL_VOLUME + (10 * log(sq_ampl) / log(10)) - reduction;
 
-    loudness_buf[output_select].loudness[instance_idx * WINDOW_SIZE + sample_idx] = decibels;
+    const uint LOUDNESS_BUCKETS = WINDOW_SIZE / 2 + 1;
+    loudness_buf[output_select].loudness[instance_idx * LOUDNESS_BUCKETS + sample_idx] = decibels;
 }
 
 void circular_samples(uint sample_idx, uint fft_offset, out vec2 prev, out vec2 curr, out vec2 next) {

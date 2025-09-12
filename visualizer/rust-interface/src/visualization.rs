@@ -9,7 +9,7 @@ struct GodotInstance {
     position: Vector3,
     cluster_size: u32,
     loudness: f32,
-    prev_loudness: f32,
+    low_freq: f32,
 }
 
 #[derive(GodotClass)]
@@ -25,7 +25,6 @@ pub struct GodotVisualizationData {
     instances: Vec<(Vector3, u32)>,
 }
 
-// todo: there are a LOT of copies going on, find a way to avoid them as much as possible
 impl GodotVisualizationData {
     pub fn set_data(&mut self, data: VisualizationData) {
         let ray_hits = data.rays.rays.map(|ray| Vector4::new(ray.x, ray.y, ray.z, ray.w));
@@ -38,25 +37,13 @@ impl GodotVisualizationData {
             .map(|i| (Vector3::new(i.direction.x, i.direction.y, i.direction.z), i.cluster_size))
             .collect()
     }
-
 }
 
 #[godot_api]
 impl GodotVisualizationData {
     #[func]
     pub fn get_instance_buffer(&self, listener: Gd<AudioListenerNode>) -> PackedByteArray { unsafe {
-        let loudness = listener.bind().loudness_history
-            .iter()
-            .take(5)
-            .fold(Loudness::empty(), |l, r| l + *r);
-
-        let prev_loudness = listener.bind().loudness_history
-            .iter()
-            .skip(3)
-            .take(5)
-            .fold(Loudness::empty(), |l, r| l + *r);
-
-        // println!("loudness of 0: {}", loudness.0[0]);
+        let loudness = listener.bind().loudness;
 
         self.instances
             .iter()
@@ -64,8 +51,8 @@ impl GodotVisualizationData {
             .map(|(idx, (pos, cluster))| GodotInstance {
                 position: *pos,
                 cluster_size: *cluster,
-                loudness: loudness.0[idx] / 5.0,
-                prev_loudness: prev_loudness.0[idx] / 5.0,
+                loudness: loudness.0[idx].0,
+                low_freq: loudness.0[idx].1
             })
             .collect::<Vec<_>>()
             .as_slice()

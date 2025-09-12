@@ -73,7 +73,6 @@ pub mod complex {
         f32::atan2(complex.y, complex.x)
     }
 
-    // todo: perform log interpolation
     pub fn to_linear_polar(cartesian: Vec2) -> Vec4 {
         // done in f64 to avoid as much precision loss as possible
         let x = cartesian.x as f64;

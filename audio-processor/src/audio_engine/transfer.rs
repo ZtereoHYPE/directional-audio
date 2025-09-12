@@ -158,7 +158,7 @@ impl TransferModule {
             *command_buffer,
             self.loudness_buffer_handles[counter],
             self.local_loudness_buffer_handle,
-            DownloadBufferData::region()
+            LoudnessBufferData::region()
         );
     }
 

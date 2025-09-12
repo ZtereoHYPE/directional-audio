@@ -21,24 +21,21 @@ use std::thread::JoinHandle;
 use bytemuck::Zeroable;
 use crate::audio_engine::gpu_constants::MAX_INSTANCES;
 
-// todo: find a better place for this (/api directory?)
-#[derive(Zeroable, Copy, Clone, PartialEq)]
-pub struct Loudness(pub [f32; MAX_INSTANCES]);
+#[derive(Zeroable, Copy, Clone, PartialEq, Debug)]
+pub struct Loudness(pub [(f32, f32); MAX_INSTANCES]);
 impl Add for Loudness {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         let mut output = Loudness::zeroed();
         for (idx, (l, r)) in self.0.into_iter().zip(rhs.0).enumerate() {
-            output.0[idx] = l + r;
+            output.0[idx] = (l.0 + r.0, l.1 + r.1);
         }
         output
     }
 }
 
 impl Loudness {
-    pub fn empty() -> Self {
-        Self::zeroed()
-    }
+    pub fn empty() -> Self { Self::zeroed() }
 }
 
 pub struct VisualizationData {

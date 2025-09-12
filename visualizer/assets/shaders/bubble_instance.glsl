@@ -15,7 +15,7 @@ struct Instance {
     vec3 position;
     float cluster_size;
     float loudness;
-    float prev_loudness;
+    float low_freq;
 };
 
 layout(binding = 1, std430) readonly restrict buffer AudioData {
@@ -33,27 +33,26 @@ void main() {
 
     vec3 local_direction = cubemap_to_direction(tex_coords);
 
-    // todo: optimize using workgroups
     float height = 0.0;
     float ripple_height = 0.0;
     for (int idx = 0; idx < instance_amount; idx++) {
         Instance instance = instances[idx];
-        vec3 instance_dir = -normalize(instance.position - camera_position);
+        vec3 instance_dir = normalize(instance.position - camera_position);
         float dist = distance(local_direction, instance_dir);
 
         // Vary the width based on how much is clustered
-        float width = float(clamp(1, 1, 40)) / 40.0;
+        float width = float(clamp(instance.cluster_size, 1, 40)) / 70.0;
         float stddev_2 = 0.0055 + width * 0.015;
 
         // Calculate the height added from the instance
         float value = exp(-(dist * dist / stddev_2));
-        float normalized = max(instance.loudness, 0) / 40.0;
-        height += value * normalized;
+        float normalized = max(instance.loudness, 0) / 70.0;
+        height = max(value * normalized, height);
 
         // If we're at the tip of the bell curve, add a ripple
         if (value > 0.98) {
-            float diff = (instance.loudness - instance.prev_loudness);
-            ripple_height += max(diff, 0.0);
+            float low_frew_norm = max(instance.low_freq, 0) / 70.0;
+            ripple_height += low_frew_norm;
         }
     }
 

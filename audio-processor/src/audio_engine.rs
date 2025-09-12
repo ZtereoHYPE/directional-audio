@@ -19,13 +19,14 @@ use ash::prelude::VkResult;
 use ash::vk::{ApplicationInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferBeginInfo, CommandBufferLevel, CommandBufferResetFlags, CommandBufferUsageFlags, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorPoolCreateInfo, DescriptorPoolSize, DescriptorType, DeviceCreateInfo, DeviceQueueCreateInfo, Fence, FenceCreateFlags, FenceCreateInfo, InstanceCreateInfo, PhysicalDeviceFeatures, PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloatFeaturesEXT, PhysicalDeviceTimelineSemaphoreFeatures, PhysicalDeviceType, PipelineStageFlags, Queue, Semaphore, SemaphoreCreateInfo, SemaphoreSignalInfo, SemaphoreType, SemaphoreTypeCreateInfo, SemaphoreWaitInfo, SubmitInfo, TimelineSemaphoreSubmitInfo};
 use ash::{vk, vk::{DebugUtilsMessengerEXT, PhysicalDevice}, Device, Entry, Instance};
 use bytemuck::Zeroable;
-use glam::{Mat3, Vec2, Vec3};
+use glam::{IVec2, Mat3, Vec2, Vec3};
 use std::array::from_ref;
 use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::mem::transmute;
 use std::rc::Rc;
+use std::str::from_utf8;
 use std::sync::Arc;
 use std::sync::atomic::fence;
 use std::time::Instant;
@@ -98,9 +99,7 @@ impl AudioEngine {
         let entry = Entry::load().expect("Could not load audio_engine library");
 
         let instance = {
-            let layers = entry.enumerate_instance_layer_properties();
-            println!("layers: {:?}", layers);
-            let layers_names_raw: [*const c_char; _] = [c"VK_LAYER_KHRONOS_validation", ] // c"VK_LAYER_LUNARG_api_dump"
+            let layers_names_raw: [*const c_char; _] = [c"VK_LAYER_KHRONOS_validation"] // c"VK_LAYER_LUNARG_api_dump"
                 .map(|raw_name: &CStr| raw_name.as_ptr());
 
             let extension_names_raw: [*const c_char; 1] = [c"VK_EXT_debug_utils"]
@@ -311,19 +310,11 @@ impl AudioEngine {
         };
 
         let audio_deps = [
-            (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Upload)]),
-            (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload), (1, AudioSyncStage::Submit)]),
+            (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Submit)]),
+            (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload)]),
             (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
             (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
         ].into_iter().collect();
-
-        // TODO MASSIVE: figure out why pipelining causes crackling sound
-        // let audio_deps = [
-        //     (AudioSyncStage::Upload,     vec![(1, AudioSyncStage::Submit)]),
-        //     (AudioSyncStage::Compute,    vec![(0, AudioSyncStage::Upload)]),
-        //     (AudioSyncStage::Download,   vec![(0, AudioSyncStage::Compute)]),
-        //     (AudioSyncStage::Submit,     vec![(0, AudioSyncStage::Download)]),
-        // ].into_iter().collect();
 
         let audio_counter = InFlightCounter::new(frames_in_flight);
         let audio_timeline = TimelineTracker::new(audio_semaphores, audio_deps);
@@ -570,7 +561,6 @@ impl AudioEngine {
             .command_buffers(from_ref(&download_buffer))
             .push_next(&mut timeline_info_download);
 
-        println!("SUBMITTING AUDIO");
         self.device.queue_submit(self.transfer_queue.handle, &[submit_info_upload, submit_info_download], fences.0)?;
         self.device.queue_submit(self.compute_queue.handle, &[submit_info_compute], fences.1)?;
 
@@ -665,7 +655,7 @@ impl AudioEngine {
         self.ray_module.upload_sources(&mut self.rt_command_buffers.0, &self.scene.sources);
 
         // Trace the rays
-        self.ray_module.shoot_rays(&mut self.rt_command_buffers.0, MAX_SOURCES as u32, self.scene.listener.location, store_rays);
+        self.ray_module.shoot_rays(&mut self.rt_command_buffers.0, self.scene.sources.len() as u32, self.scene.listener.location, store_rays);
 
         // Copy the result of shooting rays locally
         self.ray_module.copy_ray_buffer(&mut self.rt_command_buffers.0);
@@ -798,11 +788,14 @@ pub(crate) unsafe fn window_to_vec(window: Box<GpuWindow>) -> Vec<Vec2> { unsafe
 
 fn process_loudness_data(loudness_data: Box<LoudnessBufferData>) -> Box<Loudness> {
     let mut loudness = Loudness::empty();
+    const LOW_FREQ_IDX: usize = (200.0 * GPU_WINDOW_SIZE as f32 / 44100.0) as usize;
 
     for (idx, instance) in loudness_data.loudnesses.iter().enumerate() {
         // average decibels, skipping DC component
         let sum: f32 = instance.iter().skip(1).sum();
-        loudness.0[idx] = sum / (LOUDNESS_BUCKETS - 1) as f32;
+        let low_sum: f32 = instance.iter().skip(1).take(LOW_FREQ_IDX).sum();
+        loudness.0[idx].0 = sum / (LOUDNESS_BUCKETS - 1) as f32;
+        loudness.0[idx].1 = low_sum / (LOW_FREQ_IDX - 1) as f32;
     }
 
     Box::from(loudness)

@@ -96,10 +96,20 @@ void vertex() {
 	NORMAL = get_normal(sphere_direction, 0.001);
 }
 
+vec4 get_height_color(vec3 normal) {
+	float factor = height.y * 2.0;
+
+	vec3 colors[] = {vec3(0.8, 0.8, 1), vec3(0.6, 1.0, 0.6), vec3(1.0, 0.3, 0.1)};
+	vec3 color = mix(colors[0], colors[1], smoothstep(0.0, 0.5, factor));
+	color = mix(color, colors[2], smoothstep(0.5, 1.0, factor));
+
+	color = mix(vec3(1.0) - normal * 0.3, color, factor * 2.0);
+	return vec4(color, min(factor * 2.0, 1.0));
+}
+
 void fragment() {
-	vec3 color = mix(vec3(0.8, 0.8, 1), vec3(1,0,0), height.y * 2.0);
-	ALBEDO = mix(vec3(1.0) - NORMAL * 0.3, color, height.y * 2.0);
-	//ALBEDO = NORMAL;
+	vec4 color = get_height_color(NORMAL);
+	ALBEDO = color.xyz;
 	METALLIC = 0.0;
 	ROUGHNESS = 0.00;
 	RIM = 0.2;
@@ -107,7 +117,7 @@ void fragment() {
 	float rim = abs(dot(VIEW, NORMAL));
 	float fresnel = clamp(shlick_glass(rim), 0.0, 1.0);
 	ALPHA = mix(fresnel, 1.0, 0.03);
-	ALPHA += min(0.5 * sqrt(ALPHA) + height.y * 2.0, 0.9);
+	ALPHA = min(ALPHA + 0.3 * sqrt(ALPHA) + color.a, 0.95);
 }
 
 //void light() {}
