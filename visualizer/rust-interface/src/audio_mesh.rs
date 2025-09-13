@@ -6,7 +6,7 @@ use godot::obj::{Base, WithBaseField};
 use godot::prelude::*;
 
 pub const AUDIO_MESH_GROUP: &str = "AudioMeshes";
-pub const MESH_ABSORPTION_COEFFICIENT: f32 = 0.1; // todo: make this configurable from godot!
+pub const MESH_ABSORPTION_COEFFICIENT: f32 = 0.2;
 
 #[derive(GodotClass)]
 #[class(init, base=StaticBody3D)]
@@ -36,8 +36,8 @@ impl AudioMeshNode {
             let mesh = mesh_node.get_mesh();
 
             if let Some(mesh) = mesh {
-                let offset = mesh_node.get_global_position();
-                triangles.append(&mut Self::extract_mesh_triangles(mesh, offset))
+                let transform = mesh_node.get_global_transform();
+                triangles.append(&mut Self::extract_mesh_triangles(mesh, transform))
             }
         }
 
@@ -46,7 +46,7 @@ impl AudioMeshNode {
         }
     }
 
-    fn extract_mesh_triangles(mesh: Gd<Mesh>, offset: Vector3) -> Vec<Triangle> {
+    fn extract_mesh_triangles(mesh: Gd<Mesh>, transform: Transform3D) -> Vec<Triangle> {
         let mut triangles = vec![];
         for surf_idx in 0..mesh.get_surface_count() {
             let arrays = mesh.surface_get_arrays(surf_idx);
@@ -59,7 +59,7 @@ impl AudioMeshNode {
                 let mut mesh_tris = (0..indices.len())
                     .map(|idx| indices.get(idx).unwrap() as usize)
                     .map(|indice| vertices.get(indice).unwrap())
-                    .map(|vertex| to_vec(vertex + offset).into())
+                    .map(|vertex| to_vec(transform * vertex).into())
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle::new(vertices.try_into().unwrap(), MESH_ABSORPTION_COEFFICIENT))
@@ -72,7 +72,7 @@ impl AudioMeshNode {
 
                 let mut mesh_tris = (0..vertices.len())
                     .map(|idx| vertices.get(idx).unwrap())
-                    .map(|vertex| to_vec(vertex + offset).into())
+                    .map(|vertex| to_vec(transform * vertex).into())
                     .collect::<Vec<_>>()
                     .chunks_exact(3)
                     .map(|vertices| Triangle::new(vertices.try_into().unwrap(), MESH_ABSORPTION_COEFFICIENT))

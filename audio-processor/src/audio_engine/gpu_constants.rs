@@ -15,4 +15,4 @@ pub(crate) const MAX_INSTANCES: usize = 512;
 /// Delay buffer responsible for holding the delayed audio. This only gets uploaded
 pub(crate) const MAX_DELAY_FRAMES: usize = 430;  // = ~5s @ 44100Hz, rounded to %WINDOW_SIZE
 
-pub(crate) const SPHERE_POINTS: usize = 4096;
+pub(crate) const SPHERE_POINTS: usize = 1024;

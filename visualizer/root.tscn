@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3 uid="uid://bi1ycggj4ov1x"]
+[gd_scene load_steps=22 format=3 uid="uid://bi1ycggj4ov1x"]
 
 [ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_qw60f"]
 [ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://assets/scripts/slider_label.gd" id="2_eji0w"]
@@ -8,7 +8,6 @@
 [ext_resource type="Script" uid="uid://b2dga4ojqmusd" path="res://assets/scripts/bubble_visualizer.gd" id="6_r3r3k"]
 [ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/objects/arrow.obj" id="7_blcw0"]
 [ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://assets/scripts/ray_visualizer.gd" id="10_vte5o"]
-[ext_resource type="PackedScene" uid="uid://kebo7i4p3yvd" path="res://scenes/study_vertical.tscn" id="11_gd4vy"]
 [ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://assets/scripts/instance_visualizer.gd" id="11_po8fv"]
 [ext_resource type="Script" uid="uid://8vyuhyx0xogt" path="res://addons/freecam_3D/freecam.gd" id="12_ub8w1"]
 
@@ -262,8 +261,6 @@ script = ExtResource("12_ub8w1")
 toggle_key = 0
 overlay_text = false
 metadata/_custom_type_script = "uid://8vyuhyx0xogt"
-
-[node name="StudyVertical" parent="." instance=ExtResource("11_gd4vy")]
 
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Label" method="_on_h_slider_value_changed"]
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="Player/Head/AudioListenerNode" method="on_volume_change"]
