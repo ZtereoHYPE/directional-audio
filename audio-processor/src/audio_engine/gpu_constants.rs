@@ -4,7 +4,7 @@ use crate::scene::source::FRAME_SIZE;
 pub(crate) const MAX_SOURCES: usize = 8;
 
 /// Maximum concurrent sources allowed to upload new audio frames to the GPU
-pub(crate) const MAX_BOUNCES: usize = 8;
+pub(crate) const MAX_BOUNCES: usize = 6;
 
 pub(crate) const SLIDING_WINDOW_FRAME_AMT: usize = 2;
 pub(crate) const GPU_WINDOW_SIZE: usize = FRAME_SIZE * SLIDING_WINDOW_FRAME_AMT;

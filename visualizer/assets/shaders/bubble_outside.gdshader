@@ -3,6 +3,7 @@ render_mode diffuse_burley, specular_schlick_ggx;
 
 uniform samplerCube heightmap : filter_linear;
 uniform vec3 center;
+uniform float scale;
 
 varying vec3 sphere_direction;
 varying vec2 height;
@@ -92,7 +93,7 @@ void vertex() {
 	sphere_direction = normalize(VERTEX);
 	height = vertex_height(sphere_direction);
 
-	VERTEX += height.x * sphere_direction;
+	VERTEX += height.x * sphere_direction * scale;
 	NORMAL = get_normal(sphere_direction, 0.001);
 }
 

@@ -41,23 +41,23 @@ void main() {
         float dist = distance(local_direction, instance_dir);
 
         // Vary the width based on how much is clustered
-        float width = float(clamp(instance.cluster_size, 1, 40)) / 70.0;
+        float width = float(clamp(instance.cluster_size, 1, 40)) / 40.0;
         float stddev_2 = 0.0055 + width * 0.015;
 
         // Calculate the height added from the instance
         float value = exp(-(dist * dist / stddev_2));
-        float normalized = max(instance.loudness, 0) / 70.0;
+        float normalized = max(instance.loudness, 0) / 40.0;
         height = max(value * normalized, height);
 
         // If we're at the tip of the bell curve, add a ripple
         if (value > 0.98) {
-            float low_frew_norm = max(instance.low_freq, 0) / 70.0;
+            float low_frew_norm = max(instance.low_freq, 0) / 40.0;
             ripple_height += low_frew_norm;
         }
     }
 
     imageStore(heightmap_tex, tex_coords, vec4(height));
 
-    if (ripple_height > 1.0)
+    if (ripple_height > 0.3)
         imageStore(ripple_tex, tex_coords, vec4(min(ripple_height, 10.0)));
 }

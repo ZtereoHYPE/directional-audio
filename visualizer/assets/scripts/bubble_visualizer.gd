@@ -1,6 +1,6 @@
 extends MeshInstance3D
 
-const MAX_INSTANCE_AMOUNT := 64;
+const MAX_INSTANCE_AMOUNT := 512;
 const BUFFER_SIZE := 32 * MAX_INSTANCE_AMOUNT;
 
 const FACE_RESOLUTION := 128;
@@ -9,10 +9,12 @@ const FACE_RESOLUTION := 128;
 var subdivision_amt := 128;
 
 var visualization_data: GodotVisualizationData;
+var first_person_mode := false;
 
 # RENDERING RESOURCES:
 var rd: RenderingDevice;
-var material: ShaderMaterial;
+var culled_material: ShaderMaterial;
+var no_culling_material: ShaderMaterial;
 
 # textures + buffers
 var heightmap_tex_main_handle: RID;
@@ -274,10 +276,14 @@ func _ready() -> void:
 	var drawing_texture := TextureCubemapRD.new();
 	drawing_texture.texture_rd_rid = heightmap_tex_main_handle;
 	
-	material = ShaderMaterial.new()
-	material.shader = load("res://assets/shaders/bubble.gdshader") as Shader
-	material.set_shader_parameter("heightmap", drawing_texture)
-	mesh.surface_set_material(0, material)
+	culled_material = ShaderMaterial.new()
+	culled_material.shader = load("res://assets/shaders/bubble_inside.gdshader") as Shader
+	culled_material.set_shader_parameter("heightmap", drawing_texture)
+	no_culling_material = ShaderMaterial.new()
+	no_culling_material.shader = load("res://assets/shaders/bubble_outside.gdshader") as Shader
+	no_culling_material.set_shader_parameter("heightmap", drawing_texture)
+	
+	mesh.surface_set_material(0, culled_material);
 	
 	var instance_bytes := PackedVector4Array([Vector4(0, 2, 0, 0)]).to_byte_array();
 	rd.buffer_update(instance_buffer, 16, instance_bytes.size(), instance_bytes);
@@ -287,17 +293,20 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	# Lock the rotation to 0 to prevent the head rotation from messing up the locations
 	global_rotation = Vector3(0, 0, 0);
-	global_position = Vector3(5, 1.5, -6);
-	material.set_shader_parameter("center", global_position)
+	culled_material.set_shader_parameter("scale", scale.x);
+	no_culling_material.set_shader_parameter("center", global_position);
+	culled_material.set_shader_parameter("scale", scale.x);
+	no_culling_material.set_shader_parameter("scale", scale.x);
 	
 	if visualization_data == null:
 		return;
-
+	
 	rd.texture_clear(heightmap_tex, Color.BLACK, 0, 1, 0, 6);
 	
 	# Update scene data
 	var next_instances := visualization_data.get_instance_buffer($"../AudioListenerNode" as AudioListenerNode);
 	var instance_amount := visualization_data.instance_amount;
+	
 	rd.buffer_update(scene_buffer, 0, 12, PackedVector3Array([($".." as Node3D).global_position]).to_byte_array());
 	rd.buffer_update(scene_buffer, 12, 4, PackedInt32Array([instance_amount]).to_byte_array());
 	rd.buffer_update(instance_buffer, 0, next_instances.size(), next_instances);
@@ -347,14 +356,23 @@ func _process(_delta: float) -> void:
 	rd.sync();
 
 
-func _exit_tree() -> void:
-	pass; # todo: cleanups
-	#rd.free_rid(instance_buffer);
-	#rd.free_rid(scene_buffer);
-	#rd.free_rid(compute_texture);
-	#rd.free_rid(instance_descriptor_set);
-	#rd.free_rid(instance_pipeline);
-
-
 func _on_audio_listener_node_visualization_data_received(data: GodotVisualizationData) -> void:
 	visualization_data = data;
+
+
+func _on_bubble_checkbox_toggled(toggled_on: bool) -> void:
+	first_person_mode = toggled_on;
+	
+	if first_person_mode:
+		position = Vector3(0, 0, -0.4);
+		scale = Vector3(0.2, 0.2, 0.2);
+	else:
+		position = Vector3(0, 0, 0);
+		scale = Vector3(1, 1, 1);
+
+
+func _on_culling_checkbox_toggled(toggled_on: bool) -> void:
+	if toggled_on:
+		mesh.surface_set_material(0, culled_material);
+	else:
+		mesh.surface_set_material(0, no_culling_material);

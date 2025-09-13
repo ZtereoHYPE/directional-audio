@@ -1,0 +1,1 @@
+{"rule":"MORFOLOGIK_RULE_EN_US","sentence":"^\\QSince the vertices get shifted, their normals need to be recalculated in order for the shading to appear correctly.\\E$"}

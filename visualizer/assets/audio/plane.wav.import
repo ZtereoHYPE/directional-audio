@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://dlhxs3xei7p36"
-path="res://.godot/imported/exported.wav-f72533cf5b233fd716edbdf2952b206a.sample"
+uid="uid://ckdysano8cgl1"
+path="res://.godot/imported/plane.wav-8ba72be25df086f87d91e1b45f0219ab.sample"
 
 [deps]
 
-source_file="res://exported.wav"
-dest_files=["res://.godot/imported/exported.wav-f72533cf5b233fd716edbdf2952b206a.sample"]
+source_file="res://assets/audio/plane.wav"
+dest_files=["res://.godot/imported/plane.wav-8ba72be25df086f87d91e1b45f0219ab.sample"]
 
 [params]
 

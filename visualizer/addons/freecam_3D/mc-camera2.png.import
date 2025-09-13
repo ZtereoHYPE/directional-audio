@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b37yixcdj4l6e"
-path="res://.godot/imported/orbit_camera_icon.svg-ec846f788d42e90042ed8dcf2b3e17b0.ctex"
+uid="uid://c4kitg6s5bcqu"
+path="res://.godot/imported/mc-camera2.png-fe60f555c5ea92c0796267cd654ef834.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/orbit_camera/orbit_camera_icon.svg"
-dest_files=["res://.godot/imported/orbit_camera_icon.svg-ec846f788d42e90042ed8dcf2b3e17b0.ctex"]
+source_file="res://addons/freecam_3D/mc-camera2.png"
+dest_files=["res://.godot/imported/mc-camera2.png-fe60f555c5ea92c0796267cd654ef834.ctex"]
 
 [params]
 
@@ -32,6 +32,3 @@ process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
 detect_3d/compress_to=1
-svg/scale=1.0
-editor/scale_with_editor_scale=false
-editor/convert_colors_with_editor_theme=false

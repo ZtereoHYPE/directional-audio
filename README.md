@@ -35,4 +35,4 @@ The `./visualizer` can now be opened directly in Godot by:
 
 To run the project, this button can then be clicked on the top right corner:
 
-![img.png](img.png)
+![img.png](./media/img.png)

@@ -167,12 +167,6 @@ impl TransferModule {
     }
 }
 
-impl Drop for TransferModule {
-    fn drop(&mut self) {
-        // free the other objects
-    }
-}
-
 pub(crate) unsafe fn copy_to_box<T>(mem: *const T) -> Box<T> {
     // Null Check
     assert!(!mem.is_null(), "Input pointer must not be null");

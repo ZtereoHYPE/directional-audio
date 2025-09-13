@@ -1,19 +1,6 @@
-[gd_scene load_steps=29 format=4 uid="uid://u8slr1sr2sxb"]
+[gd_scene load_steps=7 format=4 uid="uid://u8slr1sr2sxb"]
 
-[ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_icnq2"]
-[ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://assets/scripts/slider_label.gd" id="2_a6ww5"]
 [ext_resource type="Texture2D" uid="uid://c72lqe2pq4p1a" path="res://assets/speaker.png" id="2_s3eio"]
-[ext_resource type="Texture2D" uid="uid://e1hkk561gs85" path="res://assets/play.png" id="3_lwliu"]
-[ext_resource type="Texture2D" uid="uid://qhk174tmjpj0" path="res://assets/pause.png" id="4_qea6r"]
-[ext_resource type="Script" uid="uid://bogt0ewoml0pc" path="res://addons/orbit_camera/orbit_camera.gd" id="6_lx530"]
-[ext_resource type="Script" uid="uid://8d5i3x7net1n" path="res://assets/scripts/orbitater.gd" id="6_viom0"]
-[ext_resource type="Script" uid="uid://b8n4t5ovhdibx" path="res://addons/proto_controller/proto_controller.gd" id="7_go5gf"]
-[ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/objects/arrow.obj" id="8_dhqrm"]
-[ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://assets/scripts/ray_visualizer.gd" id="10_qea6r"]
-[ext_resource type="Script" uid="uid://b2dga4ojqmusd" path="res://assets/scripts/bubble_visualizer.gd" id="12_d2a62"]
-[ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://assets/scripts/instance_visualizer.gd" id="12_dhqrm"]
-
-[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_a6ww5"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_6fmou"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -42,291 +29,43 @@ _surfaces = [{
 "vertex_data": PackedByteArray("yU2NQRp35D27rr5ByU2NQRp35D375rvByU2NQYYirrz75rvBTkWmQBp35D057oS/4HpYwRp35D3lNEpBbLfNwBp35D057oS/LWzKwRp35D27rr5ByU2NQRp35D27rr5BLWzKwYYirry7rr5BLWzKwRp35D27rr5B4HpYwRp35D3lNEpByU2NQRp35D27rr5ByU2NQYYirrz75rvByU2NQRp35D375rvBLWzKwRp35D375rvByU2NQRp35D375rvBzenFQBp35D1okU/BLmxnwRp35D1okU/BzenFQBp35D1okU/BTUXGQBp35D2VM0LBzenFQBp35D2VM0LBTUWmQBp35D1okT/BTkWmQBp35D0cdwLAbLfNwBp35D0cdwLAyU2NQRp35D375rvBTUXGQBp35D2VM0LBzenFQBp35D1okU/BLWzKwYYirry7rr5BLWzKwYYirrz75rvBLWzKwRp35D375rvByU2NQRp35D27rr5BTUXGQBp35D2VM0LByU2NQRp35D375rvBT0WmQBp35D3trkZB4HpYwRp35D3lNEpBTkWmQBp35D057oS/LWzKwYYirry7rr5ByU2NQYYirry7rr5ByU2NQYYirrz75rvByU2NQRp35D27rr5B4HpYwRp35D3lNEpBT0WmQBp35D3trkZByU2NQRp35D27rr5ByU2NQYYirry7rr5BLWzKwYYirry7rr5ByU2NQRp35D27rr5BT0XGQBp35D3trkZBTUXGQBp35D2VM0LByU2NQYYirry7rr5ByU2NQRp35D27rr5ByU2NQYYirrz75rvByU2NQRp35D27rr5BT0WmQBp35D3trkZBT0XGQBp35D3trkZBLWzKwRp35D27rr5B4HpowRp35D3lNEpB4HpYwRp35D3lNEpBbLfNwBp35D057oS/4HpYwRp35D3lNEpBbLfNwBp35D0cdwLATUWmQBp35D1okT/BbLfNwBp35D0cdwLA4npYwRp35D1okT/BbLfNwBp35D0cdwLA4HpYwRp35D3lNEpB4npYwRp35D1okT/BLWzKwYYirry7rr5ByU2NQYYirrz75rvBLWzKwYYirrz75rvByU2NQRp35D375rvBLmxnwRp35D1okU/BLWzKwRp35D375rvB4npowRp35D2NM0LBLmxnwRp35D1okU/BLmxnwRp35D2NM0LByU2NQYYirrz75rvBLWzKwRp35D375rvBLWzKwYYirrz75rvBLWzKwRp35D375rvB4npowRp35D2NM0LB4HpowRp35D3lNEpBLWzKwRp35D375rvBLmxnwRp35D1okU/B4npowRp35D2NM0LBLWzKwRp35D375rvB4HpowRp35D3lNEpBLWzKwRp35D27rr5BLWzKwRp35D375rvBLWzKwRp35D27rr5BLWzKwYYirry7rr5B4npYwcqmikBokT/BTUWmQMqmikBokT/BTUWmQBp35D1okT/BzenFQMqmikCVM0LBzenFQMqmikBokU/BzenFQBp35D1okU/BzenFQMqmikBokU/BTUWmQMqmikBokT/BLmxnwcqmikBokU/BzenFQMqmikBokU/BzenFQMqmikCVM0LBTUWmQMqmikBokT/BLmxnwRp35D2NM0LBLmxnwRp35D1okU/BLmxnwcqmikBokU/BzenFQBp35D1okU/BzenFQBp35D2VM0LBzenFQMqmikCVM0LBzenFQMqmikBokU/BLmxnwRp35D1okU/BzenFQBp35D1okU/B4npYwcqmikBokT/BTUWmQBp35D1okT/B4npYwRp35D1okT/BLmxnwcqmikBokU/BLmxnwcqmikCNM0LBLmxnwRp35D2NM0LBLmxnwRp35D1okU/BzenFQMqmikBokU/BLmxnwcqmikBokU/BLmxnwcqmikBokU/B4npYwcqmikCNM0LBLmxnwcqmikCNM0LBLmxnwcqmikBokU/BTUWmQMqmikBokT/B4npYwcqmikCNM0LBTUWmQMqmikBokT/B4npYwcqmikBokT/B4npYwcqmikCNM0LBTkWmQMqmikAcdwLATkWmQMqmikA57oS/bLfNwMqmikAcdwLAbLfNwBp35D057oS/bLfNwBp35D0cdwLAbLfNwMqmikAcdwLAbLfNwMqmikAcdwLATkWmQMqmikA57oS/bLfNwMqmikA57oS/bLfNwMqmikA57oS/TkWmQBp35D057oS/bLfNwBp35D057oS/bLfNwBp35D0cdwLATkWmQBp35D0cdwLATkWmQMqmikAcdwLAbLfNwMqmikA57oS/TkWmQMqmikA57oS/TkWmQBp35D057oS/TkWmQMqmikAcdwLAbLfNwMqmikAcdwLAbLfNwBp35D0cdwLAbLfNwMqmikAcdwLAbLfNwMqmikA57oS/bLfNwBp35D057oS/4npowcqmikCNM0LB4HpowRp35D3lNEpB4npowRp35D2NM0LB4HpowcqmikDlNEpB4HpYwRp35D3lNEpB4HpowRp35D3lNEpB4npowRp35D2NM0LBLmxnwcqmikCNM0LB4npowcqmikCNM0LB4HpYwRp35D3lNEpB4npYwcqmikBokT/B4npYwRp35D1okT/B4HpYwcqmikDlNEpB4HpowcqmikDlNEpB4npYwcqmikBokT/BLmxnwcqmikCNM0LB4HpowcqmikDlNEpB4npowcqmikCNM0LB4npYwcqmikCNM0LB4HpowcqmikDlNEpBLmxnwcqmikCNM0LB4npYwcqmikCNM0LB4npYwcqmikBokT/B4HpowcqmikDlNEpB4HpowRp35D3lNEpB4npowcqmikCNM0LB4HpowcqmikDlNEpB4HpYwRp35D3lNEpB4HpYwcqmikDlNEpB4npYwcqmikBokT/B4HpowcqmikDlNEpB4HpYwcqmikDlNEpB4HpYwRp35D3lNEpBLmxnwcqmikCNM0LB4npowRp35D2NM0LBLmxnwRp35D2NM0LBT0WmQBp35D3trkZBTkWmQMqmikA57oS/T0WmQMqmikDtrkZBzenFQMqmikCVM0LBTkWmQMqmikAcdwLATUWmQMqmikBokT/BzenFQMqmikCVM0LBTkWmQMqmikA57oS/TkWmQMqmikAcdwLAzenFQMqmikCVM0LBTUXGQMqmikCVM0LBT0WmQMqmikDtrkZBT0WmQMqmikDtrkZBTkWmQMqmikA57oS/zenFQMqmikCVM0LBTUXGQBp35D2VM0LBT0XGQMqmikDtrkZBTUXGQMqmikCVM0LBT0WmQMqmikDtrkZBT0XGQMqmikDtrkZBT0XGQBp35D3trkZBT0XGQMqmikDtrkZBT0WmQMqmikDtrkZBTUXGQMqmikCVM0LBTUXGQMqmikCVM0LBzenFQBp35D2VM0LBTUXGQBp35D2VM0LBTkWmQMqmikA57oS/T0WmQBp35D3trkZBTkWmQBp35D057oS/TkWmQBp35D0cdwLATUWmQMqmikBokT/BTkWmQMqmikAcdwLATUWmQMqmikBokT/BTkWmQBp35D0cdwLATUWmQBp35D1okT/BzenFQBp35D2VM0LBTUXGQMqmikCVM0LBzenFQMqmikCVM0LBT0WmQMqmikDtrkZBT0XGQBp35D3trkZBT0WmQBp35D3trkZBT0XGQMqmikDtrkZBTUXGQBp35D2VM0LBT0XGQBp35D3trkZB////f/9//n////9//3/+f////3//f/5//3///wAAAAD/f///AAAAAP9//////wAA/3//fwAA/z//f/9/AAD/P/9//38AAP8//3///wAAAAD/f///AAAAAP9//////wAA/////wAA/z//////AAD/P/////8AAP8//3///wAAAAD/f/////8AAP9///8AAAAA/3//////AAD/f/////8AAP9//////wAA/3//////AAD/f///AAAAAP9//////wAA/3///wAAAAD/f/////8AAP9//////wAAAAD/f/9//n8AAP9//3/+fwAA/3//f/5//3//////AAD/f/////8AAP9///8AAAAA/3///wAAAAD/f///AAAAAP9///8AAAAA/38AAP//AAD/fwAA//8AAP9/AAD//wAA/3//////AAD/f///AAAAAP9///8AAAAA/3//fwAA/z//f/9/AAD/P/9//38AAP8//3//////AAD/f///AAAAAP9//////wAA////f/9//n////9//3/+f////3//f/5//3//////AAD/f///AAAAAP9///8AAAAA/3///wAAAAD/f///AAAAAP9///8AAAAA/3//////AAD/f///AAAAAP9//////wAA/3//////AAD/f/////8AAP9//////wAA/3//////AAD/f///AAAAAP9//////wAA/38AAP//AAD/fwAA//8AAP9/AAD//wAA/3///wAAAAD/f///AAAAAP9///8AAAAA/3///wAAAAD/f///AAAAAP9//////wAA/////wAA/z//////AAD/P/////8AAP8//3///wAAAAD/f///AAAAAP9///8AAAAA/3///wAAAAD/f///AAAAAP9///8AAAAA/3///wAAAAD/f///AAAAAP9///8AAAAAAAD/f/9//n8AAP9//3/+fwAA/3//f/5//3//fwAA/z//f/9/AAD/P/9//38AAP8/////f/9//n////9//3/+f////3//f/5//3//////AAD/f/////8AAP9//////wAA/3//////AAD/f/////8AAP9//////wAAAAD/f/9//n8AAP9//3/+fwAA/3//f/5/////f/9//n////9//3/+f////3//f/5//////wAA/z//////AAD/P/////8AAP8//3//fwAA/z//f/9/AAD/P/9//38AAP8/AAD/f/9//n8AAP9//3/+fwAA/3//f/5//////wAA/z//////AAD/P/////8AAP8//3//////AAD/f/////8AAP9//////wAA/3//////AAD/f/////8AAP9//////wAA/3//////AAD/f/////8AAP9//////wAA/3//////AAD/f/////8AAP9//////wAAAAD/f/9//n8AAP9//3/+fwAA/3//f/5//3//////AAD/f/////8AAP9//////wAA/3//fwAA/z//f/9/AAD/P/9//38AAP8//////wAA/z//////AAD/P/////8AAP8//3//fwAA/z//f/9/AAD/P/9//38AAP8//////wAA/z//////AAD/P/////8AAP8/AAD/f/9//n8AAP9//3/+fwAA/3//f/5/AAD/f/9//z8AAP9//3//PwAA/3//f/8//3//f/9//n//f/9//3/+f/9//3//f/5///////9//n///////3/+f///////f/5/////f/9//z////9//3//P////3//f/8//3///wAA/z//f///AAD/P/9///8AAP8//3///wAA/z//f///AAD/P/9///8AAP8//3///wAA/z//f///AAD/P/9///8AAP8//3///wAA/z//f///AAD/P/9///8AAP8/AAD/f/9//z8AAP9//3//PwAA/3//f/8/////f/9//z////9//3//P////3//f/8//3//f/9//n//f/9//3/+f/9//3//f/5///////9//n///////3/+f///////f/5/AAD/f/9//z8AAP9//3//PwAA/3//f/8//3///wAA/z//f///AAD/P/9///8AAP8//3///wAA/z//f///AAD/P/9///8AAP8//3///wAA/z//f///AAD/P/9///8AAP8//3///wAA/z//f///AAD/P/9///8AAP8/////f/9//z////9//3//P////3//f/8//3//f/9//n//f/9//3/+f/9//3//f/5//3///wAA/z//f///AAD/P/9///8AAP8///////9//n///////3/+f///////f/5/AAD/f/9//z8AAP9//3//PwAA/3//f/8/AAD/f/9//z8AAP9//3//PwAA/3//f/8/AAD/f/9//z8AAP9//3//PwAA/3//f/8///////9//n///////3/+f///////f/5//3//f/9//n//f/9//3/+f/9//3//f/5/////f/9//z////9//3//P////3//f/8/")
 }]
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_d2a62"]
-albedo_color = Color(0.91806, 0.575202, 0.222449, 1)
+[node name="BasicRoom" type="Node3D"]
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_e6uwl"]
-radius = 0.4
-height = 1.8
-
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_jo7w2"]
-radius = 0.4
-height = 1.8
-
-[sub_resource type="SphereMesh" id="SphereMesh_dhqrm"]
-radius = 1.0
-height = 2.0
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u6mdc"]
-shading_mode = 2
-albedo_color = Color(0.347155, 0.749055, 0.370706, 1)
-
-[sub_resource type="ImmediateMesh" id="ImmediateMesh_go5gf"]
-
-[sub_resource type="BoxMesh" id="BoxMesh_dhqrm"]
-
-[sub_resource type="MultiMesh" id="MultiMesh_d2a62"]
-transform_format = 1
-instance_count = 13
-mesh = SubResource("BoxMesh_dhqrm")
-buffer = PackedFloat32Array(0, 2.8026e-45, 1.4013e-45, 1.4013e-45, 4.2039e-45, 2.8026e-45, 2.8026e-45, 5.60519e-45, 4.2039e-45, 4.2039e-45, 7.00649e-45, 5.60519e-45, 5.60519e-45, 8.40779e-45, 7.00649e-45, 7.00649e-45, 9.80909e-45, 8.40779e-45, 8.40779e-45, 1.12104e-44, 9.80909e-45, 9.80909e-45, 1.26117e-44, 1.12104e-44, 1.12104e-44, 1.4013e-44, 1.26117e-44, 1.26117e-44, 1.54143e-44, 1.4013e-44, 1.4013e-44, 1.68156e-44, 1.54143e-44, 1.54143e-44, 1.82169e-44, 1.68156e-44, 1.68156e-44, 1.96182e-44, 1.82169e-44, 1.82169e-44, 2.10195e-44, 1.96182e-44, 1.96182e-44, 2.24208e-44, 2.10195e-44, 2.10195e-44, 2.38221e-44, 2.24208e-44, 2.24208e-44, 2.52234e-44, 2.38221e-44, 2.38221e-44, 2.66247e-44, 2.52234e-44, 2.52234e-44, 2.8026e-44, 2.66247e-44, 2.66247e-44, 2.94273e-44, 2.8026e-44, 2.8026e-44, 3.08286e-44, 2.94273e-44, 2.94273e-44, 3.22299e-44, 3.08286e-44, 3.08286e-44, 3.36312e-44, 3.22299e-44, 3.22299e-44, 3.50325e-44, 3.36312e-44, 3.36312e-44, 3.64338e-44, 3.50325e-44, 3.50325e-44, 3.78351e-44, 3.64338e-44, 3.64338e-44, 3.92364e-44, 3.78351e-44, 3.78351e-44, 4.06377e-44, 3.92364e-44, 3.92364e-44, 4.2039e-44, 4.06377e-44, 4.06377e-44, 4.34403e-44, 4.2039e-44, 4.2039e-44, 4.48416e-44, 4.34403e-44, 4.34403e-44, 4.62428e-44, 4.48416e-44, 4.48416e-44, 4.76441e-44, 4.62428e-44, 4.62428e-44, 4.90454e-44, 4.76441e-44, 4.76441e-44, 5.04467e-44, 4.90454e-44, 4.90454e-44, 5.1848e-44, 5.04467e-44, 5.04467e-44, 5.32493e-44, 5.1848e-44, 5.1848e-44, 5.46506e-44, 5.32493e-44, 5.32493e-44, 0, 5.46506e-44, 5.46506e-44, 1.4013e-45, 0, 226, 47, 0.1155, 0.132, 0.1595, 1, 0.018018, 1, 224.469, 46.6955, 0.1155, 0.132, 0.1595, 1, 0.0111228, 0.993522, 223.172, 45.8284, 0.1155, 0.132, 0.1595, 1, 0.00527734, 0.975073, 222.304, 44.5307, 0.1155, 0.132, 0.1595, 1, 0.00137157, 0.947462, 222, 43, 0.1155, 0.132)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dhqrm"]
-albedo_color = Color(0.304676, 0.62782, 0.232377, 1)
-disable_receive_shadows = true
-
-[sub_resource type="SphereMesh" id="SphereMesh_d2a62"]
-material = SubResource("StandardMaterial3D_dhqrm")
-radius = 0.25
-height = 0.5
-radial_segments = 16
-rings = 8
-
-[node name="Root" type="Node3D"]
-
-[node name="GUI" type="CanvasLayer" parent="."]
-
-[node name="Main Panel" type="PanelContainer" parent="GUI"]
-offset_right = 233.0
-offset_bottom = 133.0
-theme = ExtResource("1_icnq2")
-theme_override_styles/panel = SubResource("StyleBoxEmpty_a6ww5")
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="Controls Panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-text = "Controls"
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="Volume" type="HBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="Volume Slider" type="HSlider" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 1
-theme = ExtResource("1_icnq2")
-value = 75.0
-
-[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume"]
-custom_minimum_size = Vector2(50, 0)
-layout_mode = 2
-size_flags_vertical = 1
-theme_override_font_sizes/font_size = 12
-text = "75% vol"
-horizontal_alignment = 2
-script = ExtResource("2_a6ww5")
-
-[node name="PlayPause" type="HBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="Label3" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause"]
-layout_mode = 2
-theme_type_variation = &"TooltipLabel"
-text = "Play/Pause"
-
-[node name="PlayPauseButton" type="TextureButton" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause"]
-custom_minimum_size = Vector2(40, 40)
-layout_mode = 2
-size_flags_horizontal = 6
-size_flags_vertical = 3
-toggle_mode = true
-button_pressed = true
-texture_normal = ExtResource("3_lwliu")
-texture_pressed = ExtResource("4_qea6r")
-ignore_texture_size = true
-stretch_mode = 6
-
-[node name="Options Panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-text = "Options"
-
-[node name="Rays Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-text = "Show Rays"
-
-[node name="Instance Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-text = "Show Instances"
-
-[node name="Bubble Checkbox" type="CheckBox" parent="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-text = "Show Bubble"
-
-[node name="View panel" type="PanelContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="MarginContainer" type="MarginContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="VBoxContainer" type="VBoxContainer" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-
-[node name="Label" type="Label" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-text = "View"
-
-[node name="Person Selector" type="OptionButton" parent="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme = ExtResource("1_icnq2")
-selected = 0
-item_count = 2
-popup/item_0/text = "First Person"
-popup/item_0/id = 0
-popup/item_1/text = "Third Person"
-popup/item_1/id = 1
-
-[node name="3D Scene" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.24801, 0, 0)
-
-[node name="WorldEnvironment" type="WorldEnvironment" parent="3D Scene"]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_icnq2")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="3D Scene/WorldEnvironment"]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="WorldEnvironment"]
 transform = Transform3D(-0.72252, -0.550055, 0.418813, 0.150748, 0.465867, 0.871919, -0.674714, 0.693115, -0.253679, 13.459, 23.6356, -3.3754)
 shadow_enabled = true
 
-[node name="AudioMeshNode" type="AudioMeshNode" parent="3D Scene"]
+[node name="AudioMeshNode" type="AudioMeshNode" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.24801, 0, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="3D Scene/AudioMeshNode"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="AudioMeshNode"]
 shape = SubResource("ConcavePolygonShape3D_6fmou")
 
-[node name="Baked mesh" type="MeshInstance3D" parent="3D Scene/AudioMeshNode"]
+[node name="Baked mesh" type="MeshInstance3D" parent="AudioMeshNode"]
 mesh = SubResource("ArrayMesh_6fmou")
-skeleton = NodePath("../../..")
+skeleton = NodePath("../..")
 
-[node name="AudioSourceNode" type="AudioSourceNode" parent="3D Scene"]
+[node name="AudioSourceNode" type="AudioSourceNode" parent="."]
 audio_file = "uid://chh4xvc6nafqi"
 loop_audio = true
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.84842, -6.59833)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.41262, 1.84842, -6.09352)
 
-[node name="Sprite3D" type="Sprite3D" parent="3D Scene/AudioSourceNode"]
+[node name="Sprite3D" type="Sprite3D" parent="AudioSourceNode"]
 transform = Transform3D(0.2, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0, 0)
 billboard = 1
 texture_filter = 1
 texture = ExtResource("2_s3eio")
 
-[node name="Player" type="CharacterBody3D" parent="3D Scene"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.273242, 0, -2.74757)
-script = ExtResource("7_go5gf")
-can_freefly = true
-input_left = "move_left"
-input_right = "move_right"
-input_forward = "move_forwards"
-input_back = "move_backwards"
+[node name="AudioSourceNode2" type="AudioSourceNode" parent="."]
+audio_file = "uid://dhg2lnxohwpvf"
+loop_audio = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.86011, 1.84842, 18.2505)
 
-[node name="Mesh" type="MeshInstance3D" parent="3D Scene/Player"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-material_override = SubResource("StandardMaterial3D_d2a62")
-cast_shadow = 0
-mesh = SubResource("CapsuleMesh_e6uwl")
-skeleton = NodePath("")
-
-[node name="Collider" type="CollisionShape3D" parent="3D Scene/Player"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_jo7w2")
-
-[node name="Head" type="Node3D" parent="3D Scene/Player"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.7, 0)
-
-[node name="Bubble Visualizer" type="MeshInstance3D" parent="3D Scene/Player/Head"]
-mesh = SubResource("SphereMesh_dhqrm")
-skeleton = NodePath("../../../Global Visualizations")
-script = ExtResource("12_d2a62")
-
-[node name="arrow" type="MeshInstance3D" parent="3D Scene/Player/Head"]
-transform = Transform3D(-1.31134e-08, 0, 0.3, 0, 0.3, 0, -0.3, 0, -1.31134e-08, 0, 0.46891, -0.130028)
-material_override = SubResource("StandardMaterial3D_u6mdc")
-cast_shadow = 0
-mesh = ExtResource("8_dhqrm")
-
-[node name="Camera3D" type="Camera3D" parent="3D Scene/Player/Head"]
-
-[node name="AudioListenerNode" type="AudioListenerNode" parent="3D Scene/Player/Head"]
-hrtf_filter = "res://assets/audio/HRIR_FULL2DEG.sofa"
-export_audio = true
-
-[node name="Orbiting Camera" type="Node3D" parent="3D Scene"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5021, 4.51067, 1.60457)
-script = ExtResource("6_viom0")
-
-[node name="OrbitCamera" type="Camera3D" parent="3D Scene/Orbiting Camera"]
-script = ExtResource("6_lx530")
-SCROLL_SPEED = 300.0
-DEFAULT_DISTANCE = 50.0
-ROTATE_SPEED = 1.0
-ANCHOR_NODE_PATH = NodePath("..")
-metadata/_custom_type_script = "uid://bogt0ewoml0pc"
-
-[node name="Global Visualizations" type="Node3D" parent="3D Scene"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.93979, -2.68506, 11.3828)
-visible = false
-
-[node name="Ray Visualizer" type="MeshInstance3D" parent="3D Scene/Global Visualizations"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.60112, 7.31321, 0)
-mesh = SubResource("ImmediateMesh_go5gf")
-script = ExtResource("10_qea6r")
-color_map = Dictionary[float, Color]({
-1.0: Color(0.9, 0, 0, 1),
-2.0: Color(0, 0.3, 0.9, 1),
-3.0: Color(0.0732942, 0.667185, 1.92523e-07, 1)
-})
-
-[node name="Instance Visualizer" type="MultiMeshInstance3D" parent="3D Scene/Global Visualizations"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -393.652, -51.3183, 0)
-multimesh = SubResource("MultiMesh_d2a62")
-script = ExtResource("12_dhqrm")
-
-[node name="Instance" type="MeshInstance3D" parent="3D Scene/Global Visualizations/Instance Visualizer"]
-transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, -44.5109, 15.0532, 0)
-mesh = SubResource("SphereMesh_d2a62")
-
-[connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Label" method="_on_h_slider_value_changed"]
-[connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="3D Scene/Player/Head/AudioListenerNode" method="on_volume_change"]
-[connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/PlayPause/PlayPauseButton" to="3D Scene/Player/Head/AudioListenerNode" method="set_play_state"]
-[connection signal="toggled" from="GUI/Main Panel/MarginContainer/VBoxContainer/Options Panel/MarginContainer/VBoxContainer/Rays Checkbox" to="3D Scene/Global Visualizations/Ray Visualizer" method="_on_rays_checkbox_toggled"]
-[connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Player" method="_on_person_selector_item_selected"]
-[connection signal="item_selected" from="GUI/Main Panel/MarginContainer/VBoxContainer/View panel/MarginContainer/VBoxContainer/Person Selector" to="3D Scene/Orbiting Camera" method="_on_person_selector_item_selected"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Player/Head/Bubble Visualizer" method="_on_audio_listener_node_visualization_data_received"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Global Visualizations/Ray Visualizer" method="_on_audio_listener_node_visualization_data_received"]
-[connection signal="visualization_data_received" from="3D Scene/Player/Head/AudioListenerNode" to="3D Scene/Global Visualizations/Instance Visualizer" method="_on_audio_listener_node_visualization_data_received"]
+[node name="Sprite3D" type="Sprite3D" parent="AudioSourceNode2"]
+transform = Transform3D(0.2, 0, 0, 0, 0.2, 0, 0, 0, 0.2, -3.59958, 0, -8.09626)
+billboard = 1
+texture_filter = 1
+texture = ExtResource("2_s3eio")
