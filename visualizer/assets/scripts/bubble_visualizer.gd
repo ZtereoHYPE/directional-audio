@@ -365,7 +365,7 @@ func _on_bubble_checkbox_toggled(toggled_on: bool) -> void:
 	
 	if first_person_mode:
 		position = Vector3(0, 0, -0.4);
-		scale = Vector3(0.2, 0.2, 0.2);
+		scale = Vector3(0.15, 0.15, 0.15);
 	else:
 		position = Vector3(0, 0, 0);
 		scale = Vector3(1, 1, 1);

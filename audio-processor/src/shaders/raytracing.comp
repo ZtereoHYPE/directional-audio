@@ -267,7 +267,7 @@ Output shoot_ray(Ray main_ray, uint point_idx, uint source_idx) {
 
         // Else, keep bouncing (using perfect reflections)
         result.additional_distance += length(main_ray.origin - mesh_hit.pos);
-        result.attenuation *= (1.0 - mesh_hit.absorption);
+        result.attenuation *= (1.0 - mesh_hit.absorption) * (1.0 - mesh_hit.absorption);
         main_ray.origin = mesh_hit.pos;
         main_ray.direction = reflect(main_ray.direction, mesh_hit.normal);
     }

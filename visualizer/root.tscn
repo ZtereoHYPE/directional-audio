@@ -1,4 +1,4 @@
-[gd_scene load_steps=22 format=3 uid="uid://bi1ycggj4ov1x"]
+[gd_scene load_steps=26 format=3 uid="uid://bi1ycggj4ov1x"]
 
 [ext_resource type="Theme" uid="uid://qq0e5eftoavp" path="res://theme.tres" id="1_qw60f"]
 [ext_resource type="Script" uid="uid://dsugfwsgyrvkk" path="res://assets/scripts/slider_label.gd" id="2_eji0w"]
@@ -8,8 +8,22 @@
 [ext_resource type="Script" uid="uid://b2dga4ojqmusd" path="res://assets/scripts/bubble_visualizer.gd" id="6_r3r3k"]
 [ext_resource type="ArrayMesh" uid="uid://cedjvo0fxs4tl" path="res://assets/objects/arrow.obj" id="7_blcw0"]
 [ext_resource type="Script" uid="uid://cgaeoiyi3p7s0" path="res://assets/scripts/ray_visualizer.gd" id="10_vte5o"]
+[ext_resource type="PackedScene" uid="uid://blpogm6fmxl72" path="res://scenes/double_room.tscn" id="11_gd4vy"]
 [ext_resource type="Script" uid="uid://mr3knn246y8a" path="res://assets/scripts/instance_visualizer.gd" id="11_po8fv"]
 [ext_resource type="Script" uid="uid://8vyuhyx0xogt" path="res://addons/freecam_3D/freecam.gd" id="12_ub8w1"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_gd4vy"]
+sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
+ground_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
+
+[sub_resource type="Sky" id="Sky_s3eio"]
+sky_material = SubResource("ProceduralSkyMaterial_gd4vy")
+
+[sub_resource type="Environment" id="Environment_qw60f"]
+background_mode = 2
+sky = SubResource("Sky_s3eio")
+tonemap_mode = 2
+glow_enabled = true
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_a6ww5"]
 
@@ -54,6 +68,13 @@ radial_segments = 16
 rings = 8
 
 [node name="Root" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_qw60f")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="WorldEnvironment"]
+transform = Transform3D(-0.72252, -0.550055, 0.418813, 0.150748, 0.465867, 0.871919, -0.674714, 0.693115, -0.253679, 13.459, 23.6356, -3.3754)
+shadow_enabled = true
 
 [node name="GUI" type="CanvasLayer" parent="."]
 
@@ -261,6 +282,8 @@ script = ExtResource("12_ub8w1")
 toggle_key = 0
 overlay_text = false
 metadata/_custom_type_script = "uid://8vyuhyx0xogt"
+
+[node name="DoubleRoom" parent="." instance=ExtResource("11_gd4vy")]
 
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Label" method="_on_h_slider_value_changed"]
 [connection signal="value_changed" from="GUI/Main Panel/MarginContainer/VBoxContainer/Controls Panel/MarginContainer/VBoxContainer/VBoxContainer/Volume/Volume Slider" to="Player/Head/AudioListenerNode" method="on_volume_change"]

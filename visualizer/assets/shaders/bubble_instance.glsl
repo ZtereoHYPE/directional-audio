@@ -41,7 +41,7 @@ void main() {
         float dist = distance(local_direction, instance_dir);
 
         // Vary the width based on how much is clustered
-        float width = float(clamp(instance.cluster_size, 1, 40)) / 40.0;
+        float width = float(clamp(instance.cluster_size, 1, 20)) / 10.0;
         float stddev_2 = 0.0055 + width * 0.015;
 
         // Calculate the height added from the instance

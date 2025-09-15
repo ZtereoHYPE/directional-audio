@@ -92,7 +92,7 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseMotion:
 			pivot.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 			rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
-			rotation.x = clamp(rotation.x, -PI/2, PI/2)
+			#rotation.x = clamp(rotation.x, -PI/2, PI/2)
 		
 		var speed_up := func():
 			target_speed = clamp(target_speed + 0.15, MIN_SPEED, MAX_SPEED)

@@ -19,9 +19,14 @@ config/icon="res://assets/icon.svg"
 
 gdscript/warnings/untyped_declaration=1
 
+[display]
+
+window/size/viewport_width=1792
+window/size/viewport_height=1008
+
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/freecam_3D/plugin.cfg", "res://addons/orbit_camera/plugin.cfg")
+enabled=PackedStringArray("res://addons/freecam_3D/plugin.cfg")
 
 [gui]
 

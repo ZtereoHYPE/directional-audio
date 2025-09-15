@@ -115,8 +115,6 @@ impl ClusterModule {
         }
     }
 
-    // todo: a lot of the work in the lambda can be moved to the cluster function, and the thread can
-    //  simply execute a function pointer!
     pub(super) fn cluster_hits_async(&mut self, timeline: TimelineTracker<RtSyncStage>, counter: InFlightCounter) {
         let device = self.device.clone();
         let new_clusters = self.in_progress_clusters.clone();
@@ -179,7 +177,6 @@ impl ClusterModule {
             // .map(|(idx, src)| (idx, src.len(), src.into_iter().map(|i| vec![i]).collect::<Vec<_>>())) // cluster them
             .collect::<Vec<_>>();
 
-        // todo: this is very easily parallelizable or SIMD-able
         let mut total_instances = vec![];
         for (source_idx, source_len, source) in source_clusters {
             for cluster in source.iter().skip(1) {

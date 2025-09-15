@@ -93,7 +93,7 @@ void vertex() {
 	sphere_direction = normalize(VERTEX);
 	height = vertex_height(sphere_direction);
 
-	VERTEX += height.x * sphere_direction * scale;
+	VERTEX += height.x * sphere_direction;
 	NORMAL = get_normal(sphere_direction, 0.001);
 }
 
